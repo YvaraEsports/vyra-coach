@@ -1,0 +1,231 @@
+# Yvara AI – AI Coach – Konfiguration
+# Kopiere diese Datei nach "config.yaml" und passe sie an.
+
+coach:
+  name: Yvara AI            # so heißt dein Coach – hört auch auf „Coach“
+  roast_level: 1            # Trash Talk 0 (aus) … 3 (brutal): so hart feuert sie zurück, wenn man sie beleidigt
+  vibe: normal              # normal | toxic (roastet euch aus Spaß) | flirty (charmant, jugendfrei) – auch per Stimme umschaltbar
+  personality: >-
+    Lustig und locker, aber wenn's zählt, absolut ernst. Kommt gut gelaunt rein ("Hey, what's up, Jungs!"),
+    macht zwischendurch Sprüche und lacht auch mal mit (haha), zieht die Jungs liebevoll auf.
+    Sobald das Match läuft oder ein Review ansteht: fokussiert, direkt und ehrlich wie ein Pro-Coach.
+    Lobt gute Plays konkret, sagt klar, wenn etwas schlecht war, und bringt den Spielern immer etwas bei.
+    Nie toxisch, nie weich. Witze nur, wenn gerade keine Info-Calls gebraucht werden.
+
+update:
+  repo: YvaraEsports/vyra-coach   # GitHub-Repo, aus dem Updates geladen werden
+  branch: main
+  auto: true                      # beim Start automatisch updaten (eure Daten bleiben erhalten)
+
+language: auto            # auto | de | en  (auto = antwortet in der Sprache, in der gesprochen wurde)
+default_language: de      # Fallback, wenn "auto" nichts erkennt
+
+# Startteam (beim ersten Start angelegt). Weitere Teams wie "Yvara Z8" legst du in der
+# Chat-Oberfläche oder per /coach team an – jedes Team hat eigenes Gedächtnis, Chats, Stats.
+team:
+  name: Yvara Main
+  # Roster: In-Game-Name + Rolle. Der Coach lernt pro Spieler.
+  players:
+    - { ingame: "Player1", role: "AR / Anchor" }
+    - { ingame: "Player2", role: "SMG / Entry" }
+    - { ingame: "Player3", role: "SMG / Flex" }
+    - { ingame: "Player4", role: "AR / Main" }
+
+web:
+  enabled: true             # eigene Chat-Oberfläche im Browser (nur lokal erreichbar)
+  port: 8765
+  open_browser: true
+  app_browser: chrome         # chrome | edge | brave – womit das App-Fenster geöffnet wird
+  app_window: true            # als eigenes Programmfenster öffnen (Edge/Chrome App-Modus) statt als Browser-Tab
+  lan_overlay: false        # true = OBS auf einem anderen PC im Heimnetz darf das Caster-Overlay öffnen (sonst nichts)
+  research: true            # Online-Recherche (Patch Notes, Meta, Turniere) im Chat
+
+discord:
+  report_channel: coach-reports   # Textkanal für Pläne, Reviews, Stats
+  guild_id: null                  # optional: Server-ID für sofortige Slash-Commands
+  auto_join_channels: []          # z. B. ["Scrims", "Liga"]: Yvara AI kommt von selbst, sobald jemand reingeht, und geht, wenn alle weg sind
+  follow_user: null               # dein Discord-Name/ID: Yvara AI kommt automatisch mit in deinen Voice-Channel
+  text_chat: true                 # @Yvara AI im Textchat (Developer-Portal: "Message Content Intent" an)
+
+# Coaching-Modus: live = macht Calls im Spiel | observe = schaut still zu, Feedback nach Runde/Map/Match
+#                 teach = Training / Private Match: erklärt Schritt für Schritt (Wege, Aim, Taktiken)
+coaching_mode: live
+
+llm:
+  # Welches KI-Modell denkt?
+  #   claude = Anthropic-API (beste Qualität, kostet pro Nutzung, ANTHROPIC_API_KEY nötig)
+  #   ollama = komplett lokal und kostenlos (https://ollama.com), z. B. "ollama pull gemma3:12b"
+  #   openai = LM Studio oder anderer OpenAI-kompatibler Server
+  provider: ollama           # lokal. "claude" geht nur mit privacy.allow_cloud_ai: true
+  local_model: gemma3:12b    # schnell, gutes Deutsch+Englisch, versteht Bilder. Fehlt es, lädt Yvara AI es selbst herunter
+  local_vision: true
+  base_url: ""               # leer = Standard (Ollama http://localhost:11434/v1, LM Studio http://localhost:1234/v1)
+  api_key: ""                # nur für Online-Anbieter mit OpenAI-Schnittstelle nötig
+  num_ctx: 8192              # Kontextfenster bei Ollama (mehr = mehr Gedächtnis pro Frage, aber langsamer)
+  local_timeout_s: 300
+  model: claude-opus-5-5
+  effort_live: low        # schnelle Live-Calls
+  effort_deep: high       # Reviews, Pläne, Lernen
+  use_fallbacks: true     # serverseitiger Fallback, falls ein Modell ablehnt
+  max_answer_words: 35    # gesprochene Antworten kurz halten
+
+audio:
+  # Quellen, auf die der Coach hört:
+  #  mic      = dein Mikrofon (du sprichst mit dem Coach)
+  #  loopback = alles, was dein PC abspielt (Discord-Comms deiner Mates!)
+  sources:
+    - { type: mic, name: null }        # null = Standardgerät, sonst Teil des Gerätenamens
+    - { type: loopback, name: null }   # Windows: z. B. "Headset". macOS: name: "BlackHole" (siehe README)
+  wake_words: ["coach", "kotsch", "couch", "hey coach"]
+  push_to_talk_key: null               # z. B. "f8" – dann hört sie auf dein Mikro nur, solange die Taste gedrückt ist
+  always_listen_mic: false             # true = jede Frage über dein Mikro ohne Wake-Word
+  proactive: true                      # Yvara AI antwortet auch ohne „Coach“, wenn in den Comms eine Frage kommt, bei der sie helfen kann
+  proactive_cooldown_s: 8              # so lange wartet sie, bevor sie sich wieder von selbst einmischt
+  mic_auto_answer: true                # Fragen an deinem eigenen Mikro beantwortet sie immer, auch ohne „Coach“
+  barge_in: true                       # du redest dazwischen -> Yvara AI hört sofort auf und hört zu
+  endpoint_s: 0.5                      # so lange Pause, bis ein Satz als fertig gilt (kürzer = schneller)
+  log_comms: true                      # Comms für Reviews mitschreiben (Kommunikationsanalyse)
+  vad_threshold: 0.012                 # Lautstärke-Schwelle für Sprache
+  stt_model: small                     # auf der CPU: tiny | base | small | medium (größer = genauer, langsamer)
+  stt_model_gpu: large-v3-turbo        # auf der Grafikkarte (NVIDIA): groß, genau und trotzdem schnell
+  stt_engine: parakeet                 # parakeet (CPU, spart Grafikspeicher, DE+EN) | whisper (Grafikkarte)
+  stt_device: auto                     # auto | cuda | cpu
+
+tts:
+  engine: piper                        # xtts (EINE Stimme für de+en, Grafikkarte, eigene Stimme – vorher stimme_einrichten.bat) | piper | edge | system
+  xtts_voice: Damien Black             # eingebauter Sprecher oder "custom:<name>" (eigene Aufnahme in data/voices/custom)
+  xtts_voice_en: ""                    # leer = gleiche Stimme auch für Englisch, sonst anderer Sprecher oder "custom:<name>"
+  same_voice: false                    # nur Piper: deutsche Stimme auch für Englisch benutzen
+  piper_de: de_DE-thorsten-high        # Stimme oder Pfad zu eigener .onnx (eigene trainierte Stimme)
+  piper_en: en_US-ryan-high
+  piper_speed: 1.1
+  english_terms: true                  # englische Begriffe (Rotate, Push, B Site, Callouts) in deutschen Sätzen englisch aussprechen
+  english_words: []                    # eigene Begriffe ergänzen, z. B. ["Hardpoint P3", "Tac Sprint"]
+  voice_de: de-DE-ConradNeural         # nur für engine: edge
+  voice_en: en-US-GuyNeural
+  rate: "+10%"
+  output: discord                      # discord | local  (local = über deine Lautsprecher)
+
+capture:
+  mode: monitor                        # monitor | window
+  monitor: 1                           # 1 = Hauptmonitor
+  window_title: "Call of Duty"         # bei mode: window (nur Windows). "Discord" = Go-Live eines Mates analysieren
+  region: null                         # optional [links, oben, breite, höhe] in Pixeln (z. B. für macOS)
+  hud_fps: 2                           # wie oft das HUD (Score/Timer) gelesen wird
+  vision_interval_s: 20                # wie oft der Coach das Bild "anschaut" (Kosten!)
+  vision_width: 1280                   # Bildbreite für die KI-Analyse
+  save_snapshots: false
+
+# Mehrere Bildquellen gleichzeitig (ein Feed pro Spieler). Leer = nur "capture" oben.
+# kind: monitor (ref = Nummer) | window (ref = Fenstertitel, nur Windows) | region (ref = [l, o, b, h]) | twitch (ref = Kanal)
+feeds: []
+#  - { player: "Player1", kind: monitor, ref: 1 }
+#  - { player: "Player2", kind: window,  ref: "Discord" }
+#  - { player: "Player3", kind: twitch,  ref: "player3_twitch" }
+#  - { player: "Player4", kind: twitch,  ref: "player4_twitch" }
+feeds_auto_focus: true      # Yvara AI entscheidet selbst, wem sie genauer zuschaut
+
+# HUD-Bereiche als Anteil des Bildes (x, y, Breite, Höhe von 0..1).
+# Mit "python -m coach calibrate" bequem per Maus festlegen.
+hud:
+  score_ours:  [0.020, 0.030, 0.050, 0.040]
+  score_enemy: [0.075, 0.030, 0.050, 0.040]
+  game_timer:  [0.470, 0.010, 0.060, 0.035]
+  objective_timer: null                # z. B. Hardpoint-Hill-Timer
+  killfeed: null                       # optional, z. B. [0.70, 0.55, 0.28, 0.18]
+  minimap: null                        # z. B. [0.01, 0.02, 0.17, 0.30] – mit calibrate festlegen
+
+# Minimap-Tracking: Teamfarben der Spieler-Marker (OpenCV-HSV, H 0-179).
+# Caster-Ansicht nutzt oft eigene Teamfarben – hier anpassen, wenn Marker nicht erkannt werden.
+minimap:
+  team_colors:
+    ours:  [[[95, 120, 120], [125, 255, 255]]]                              # blau
+    enemy: [[[0, 130, 130], [8, 255, 255]], [[170, 130, 130], [179, 255, 255]]]  # rot
+  min_area: 6
+  max_area: 220
+
+study:                     # Lern-Modus (Streams, VODs, Highlights, Scrims)
+  window_s: 60              # so viele Sekunden Video pro Analyse-Schritt
+  frames_per_window: 5      # Bilder pro Schritt (mehr = genauer, teurer)
+  frame_width: 1024
+  effort: medium            # Denktiefe pro Analyse-Schritt: low | medium | high (höher = teurer)
+  minimap_roi: null         # Minimap-Bereich in Caster-/Stream-Ansicht (sonst hud.minimap)
+
+autolearn:                 # Fortbildungsmodus: selbstständig lernen, bis du stoppst
+  autostart: true           # beim Start von Yvara AI automatisch im Hintergrund lernen (pausiert während Matches)
+  game: Modern Warfare 4    # NUR dieses Spiel lernen
+  game_tags: [MW4, Modern Warfare 4]
+  modes: [hardpoint, snd, hijack]
+  topics: ""                # Fokus, z. B. "Hijack Setups, SnD Retakes"
+  watch_live: true          # laufende Streams der twitch_channels live mitschauen
+  max_live_minutes: 90
+  max_hours: 0              # 0 = bis Stopp
+  max_videos: 0             # 0 = unbegrenzt
+  max_minutes_per_video: 25 # lange VODs werden gleichmäßig verteilt analysiert (Kosten!)
+  min_video_minutes: 3
+  max_video_minutes: 240
+  queries_per_round: 4
+  results_per_query: 4
+  reflect_every: 3          # nach so vielen Videos eigene Taktiken entwickeln
+  twitch_channels: [callofdutyleague]   # VODs dieser Kanäle mit einbeziehen
+  keep_videos: false        # geladene Videos nach der Analyse löschen
+
+callouts:
+  enabled: true
+  min_gap_s: 6                         # Mindestabstand zwischen Live-Calls
+  vision_calls: true                   # KI-Calls aus der Bildanalyse
+  rule_calls: true                     # feste Calls (Hill-Rotation, Zeit, Score)
+  tilt_comms_30s: 14                   # so viele Comms in 30 s = Hektik -> "Comms ruhiger"
+  tendencies: true                     # Gegner-Muster live ansagen ("Die kommen immer wieder über Top Bridge")
+
+timers:                                # Timer-Calls ("Coach, Timer 30 Sekunden", "Coach, Hill ist neu", "Coach, Timer aus")
+  enabled: true
+  bomb_s: 45                           # SnD-Bombe: startet bei "geplantet"/"Bombe liegt" in den Comms
+  defuse_s: 7.5
+  hill_s: 60                           # Hardpoint: Hill-Dauer, Uhr per "Coach, Hill ist neu" oder automatisch aus dem HUD
+  pre_rotate_s: 20                     # so viele Sekunden vorher: "Zwei Mann vorrotieren"
+  hill_from_hud: true
+  enemy_uav_s: 30                      # "Gegner haben UAV" -> nach so vielen Sekunden "UAV müsste weg sein"
+
+performance:
+  gaming_mode: auto        # auto = sobald Call of Duty läuft | on | off
+  game_model: gemma3:4b    # kleines KI-Modell während des Spielens (großes wird entladen)
+  game_num_ctx: 4096
+  game_vision: false       # KI-Bildanalyse im Gaming-Modus (kostet Grafikkarte)
+
+# Caster-Modus: Yvara AI kommentiert Matches live für den Stream (App → 📣 Caster, oder „Yvara AI, Caster-Modus“)
+caster:
+  lang: de                  # de | en – Sprache des Casts
+  style: hype               # hype | analyst | funny
+  voice: ""                 # leer = Haupt-Stimme. XTTS-Name, "custom:name" oder "sup:M1" … "sup:F5" (Supertonic, sehr schnell)
+  output: overlay           # overlay = Stimme + Untertitel über die OBS-Browserquelle /overlay | local = Lautsprecher
+  source: screen            # screen | monitor:2 | window:Titel | stream:9000 (OBS übers Heimnetz) | twitch:kanal | device:0
+  twitch_channel: ""        # Chat wird anonym gelesen (kein Login, kein Token, Yvara AI schreibt nie in den Chat)
+  killfeed_region: null     # [links, oben, breite, höhe] als Anteil 0–1 -> Sofort-Ruf bei Doppel-/Multikills
+  interval_s: 7             # so oft kommentiert sie, wenn nichts Großes passiert
+  max_words: 18
+  fps: 6                    # Bilder pro Sekunde für die Killfeed-Erkennung
+  image_width: 768          # kleineres Bild = schnellere KI-Antwort
+  autostart: false          # true = beim Start direkt im Caster-Modus (oder: python -m coach local --caster)
+
+# Sync: zwei Geräte. KI-Gerät (Laptop/MacBook) = receive, Gaming-PC = send. Am einfachsten in der App unter 🔗 Sync.
+sync:
+  role: "off"               # off | receive (KI läuft hier) | send (nur Bild/Ton schicken, keine KI)
+  host: ""                  # nur beim Sender: Adresse des Laptops, z. B. 192.168.178.40
+  code: ""                  # nur beim Sender: 6-stelliger Kopplungs-Code vom Laptop
+  video: true               # Bild schicken
+  audio: true               # PC-Sound schicken (Discord-Comms, Spiel)
+  mic: false                # Mikrofon des PCs schicken
+  monitor: 1
+  port: 9100
+
+privacy:
+  # Alles bleibt auf deinem PC. Nichts von Gedächtnis, Dateien, Stimmen oder Bildern geht ins Internet.
+  allow_cloud_ai: false     # true = Claude-API erlaubt (Texte/Bilder gehen dann an Anthropic)
+  allow_cloud_voice: false  # true = Edge-Stimmen erlaubt (gesprochener Text geht an Microsoft)
+  allow_web_search: false   # true = Websuche erlaubt (Suchbegriffe gehen an DuckDuckGo)
+  discord_reports: false    # true = Match-Reports/Dateien automatisch in den Discord-Report-Kanal posten
+
+safety:
+  network_guard: true      # nur freigegebene Dienste (Discord, YouTube/Twitch, Modelle, Updates); Rest blockiert
+  extra_hosts: []          # eigene Freigaben, z. B. ["meinserver.de"]

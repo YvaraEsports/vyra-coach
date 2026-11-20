@@ -1,0 +1,62 @@
+# Wissensbasis Spielmodi (competitive / Ranked- und Liga-Regeln).
+# Zahlen können sich je nach CoD-Titel und Season ändern – hier anpassen.
+
+hardpoint:
+  name: Hardpoint
+  target: 250
+  round_based: false
+  rotate_warn_s: 15        # Call, wenn der Hill-Timer diesen Wert erreicht
+  swing_points: 25         # Gegner holt in 30 s so viele Punkte mehr -> Reset-Call
+  principles:
+    - Win the hill fight as a unit; trade every death, no solo pushes into a held hill.
+    - Pre-rotate 1-2 players to the next hill 15-20 s before rotation to secure spawns and first contact.
+    - Track spawns; when you break the enemy setup, cap with numbers and hold the power positions around the hill.
+    - Breaking a hill needs a coordinated full team push timed with streaks or utility, not drip-feeding.
+    - Communicate lives, spawn flips and who is holding which lane.
+    - Manage time on hill; a 4-man hold means nothing if the next hill is lost on the rotate.
+  common_mistakes:
+    - Drip-feeding into the hill one by one.
+    - Everyone leaving the hill early so the enemy steals time.
+    - Late rotations and fighting the next hill 4v4 from a bad spawn.
+    - Chasing kills deep into enemy spawn and flipping spawns against the team.
+
+snd:
+  name: Search and Destroy
+  target: 6
+  round_based: true
+  time_warnings: [30, 15]
+  principles:
+    - Gather info early; first blood decides many rounds, avoid uncontested 1v1 duels without trade.
+    - Play man advantage; when up a player, slow down and trade, do not give free picks.
+    - Attack - fake and split pressure, plant for post-plant with crossfires; defense - stagger, hold info, retake as a group.
+    - Track the round economy of time - make the call to rush or default with 30 s left.
+    - Clutch situations need calm, short, precise info from dead players only.
+  common_mistakes:
+    - Dead players talking over the clutch player.
+    - Running the same strat three rounds in a row so it gets read.
+    - Peeking the same angle twice after being seen.
+    - No trade on the entry.
+
+control:
+  name: Control
+  target: 3
+  round_based: true
+  time_warnings: [30]
+  principles:
+    - Life management - 30 lives per team; trading efficiently matters more than kills.
+    - Defense - hold the zone with crossfires, don't over-push and give lives.
+    - Attack - group up, use streaks and utility, hit together on one zone.
+    - Know when to save lives and fall back to the next zone.
+  common_mistakes:
+    - Over-peeking on defense and bleeding lives.
+    - Splitting attack 2-2 without a plan.
+    - Ignoring the life count late in the round.
+
+hijack:
+  name: Hijack
+  # Neuer Modus – Regeln/Zahlen bitte prüfen und ergänzen (oder Vyra im Chat mit
+  # Online-Recherche fragen). Den Rest lernt Vyra über den Lern-Modus aus Pro-Matches.
+  target: 0
+  round_based: false
+  principles: []
+  common_mistakes: []

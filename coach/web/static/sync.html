@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yvara AI Sync</title>
+<link rel="icon" href="/static/logo.svg">
+<style>
+  :root { --bg: #0b0d12; --bg2: #141824; --line: #252b3b; --text: #e8eaf2; --muted: #8a92a8; --a: #8a5cff; --b: #36c2ff; --ok: #3ad29f; --bad: #ff5a6a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 620px; margin: 0 auto; padding: 28px 16px; }
+  header { display: flex; gap: 14px; align-items: center; margin-bottom: 18px; }
+  header img { width: 56px; height: 56px; }
+  h1 { margin: 0; font-size: 22px; } p { color: var(--muted); margin: 4px 0 0; }
+  .card { background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin: 14px 0; }
+  label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 13px; }
+  input[type=text], input[type=number] { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: #0f121a; color: var(--text); font: inherit; }
+  .tg { display: flex; gap: 10px; align-items: center; color: var(--text); font-size: 15px; margin: 10px 0; }
+  button { background: linear-gradient(135deg, var(--a), var(--b)); color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+  .st { font-weight: 600; } .ok { color: var(--ok); } .bad { color: var(--bad); }
+  small { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="/static/logo.svg" alt=""><div><h1>Yvara AI · Sync sendet</h1><p>Dieser PC schickt nur Bild und Ton an deinen Laptop. Die KI läuft dort – CoD hat hier volle Leistung.</p></div></header>
+  <div class="card"><div class="st" id="st">…</div><small id="stats"></small></div>
+  <div class="card">
+    <label>Adresse des Laptops (steht dort unter 🔗 Sync)</label><input type="text" id="host" placeholder="z. B. 192.168.178.40">
+    <label>Kopplungs-Code (6 Ziffern)</label><input type="text" id="code" maxlength="6" placeholder="123456">
+    <label class="tg"><input type="checkbox" id="video"> 🖥️ Bild schicken</label>
+    <label class="tg"><input type="checkbox" id="audio"> 🔊 PC-Sound schicken (Discord-Comms, Spiel)</label>
+    <label class="tg"><input type="checkbox" id="mic"> 🎙️ Mikrofon schicken (mit Yvara AI über dein Headset reden)</label>
+    <label>Bildschirm</label><input type="number" id="monitor" min="1" max="6">
+    <div class="row"><button id="save">Übernehmen & verbinden</button><button class="ghost" id="all">Wieder alles auf diesem PC</button><button class="ghost" id="quit">Beenden</button></div>
+  </div>
+  <small id="ver"></small>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+let filled = false;
+async function load() {
+  try {
+    const d = await (await fetch("/api/sync", { cache: "no-store" })).json();
+    if (!filled) {
+      $("#host").value = d.host || ""; $("#code").value = d.code || ""; $("#monitor").value = d.monitor || 1;
+      $("#video").checked = !!d.video; $("#audio").checked = !!d.audio; $("#mic").checked = !!d.mic; filled = true;
+    }
+    $("#st").textContent = d.connected ? `✓ Verbunden mit ${d.host}` : (d.error ? "✕ " + d.error : (d.host ? "Verbinde …" : "Laptop-Adresse und Code eintragen"));
+    $("#st").className = "st " + (d.connected ? "ok" : d.error ? "bad" : "");
+    const s = d.sent || {};
+    $("#stats").textContent = d.connected ? `Gesendet: ${s.V || 0} Bilder · ${(s.A || 0) + (s.M || 0)} Tonpakete` : "";
+    $("#ver").textContent = "Version " + (d.version || "") + " Alpha";
+  } catch (e) { $("#st").textContent = "Yvara AI läuft nicht mehr"; }
+}
+async function post(body) {
+  const r = await fetch("/api/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+$("#save").onclick = async () => {
+  await post({ host: $("#host").value.trim(), code: $("#code").value.trim(), video: $("#video").checked, audio: $("#audio").checked,
+               mic: $("#mic").checked, monitor: Number($("#monitor").value) || 1 });
+  filled = false; load();
+};
+$("#all").onclick = async () => { await post({ role: "off" }); $("#st").textContent = "Startet neu als volle App …"; setTimeout(() => location.reload(), 10000); };
+$("#quit").onclick = () => fetch("/api/quit", { method: "POST" });
+load(); setInterval(load, 1500);
+</script>
+</body>
+</html>

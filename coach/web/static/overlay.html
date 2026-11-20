@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yvara AI Caster Overlay</title>
+<style>
+  :root { --a: #8a5cff; --b: #36c2ff; --hot: #ff4d6d; }
+  html, body { margin: 0; background: transparent; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; }
+  #wrap { position: fixed; left: 50%; bottom: 6vh; transform: translateX(-50%); width: min(1400px, 92vw);
+          display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .cap { display: flex; align-items: center; gap: 14px; padding: 14px 26px; border-radius: 16px;
+         background: rgba(12, 10, 24, .82); border: 2px solid rgba(138, 92, 255, .7);
+         box-shadow: 0 8px 30px rgba(0, 0, 0, .45); color: #fff; font-size: 34px; font-weight: 650;
+         line-height: 1.25; text-shadow: 0 2px 4px rgba(0, 0, 0, .6); opacity: 0; transform: translateY(16px);
+         transition: opacity .18s ease, transform .18s ease; max-width: 100%; }
+  .cap.show { opacity: 1; transform: none; }
+  .cap .tag { flex: none; font-size: 15px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+              padding: 6px 10px; border-radius: 8px; background: linear-gradient(135deg, var(--a), var(--b)); }
+  .cap.h2 { border-color: var(--b); }
+  .cap.h3 { border-color: var(--hot); animation: shake .35s ease 2; font-size: 40px; }
+  .cap.h3 .tag { background: linear-gradient(135deg, var(--hot), #ffb84d); }
+  .cap .to { color: #9fe0ff; }
+  @keyframes shake { 0%,100% { transform: none } 25% { transform: translateX(-4px) rotate(-.4deg) } 75% { transform: translateX(4px) rotate(.4deg) } }
+  #hint { position: fixed; top: 8px; left: 8px; color: #fff; background: rgba(0,0,0,.6); padding: 6px 10px;
+          border-radius: 8px; font-size: 14px; display: none; }
+</style>
+</head>
+<body>
+<div id="hint">Yvara AI Caster-Overlay – wartet auf den Caster-Modus …</div>
+<div id="wrap"><div id="cap" class="cap"><span class="tag">Yvara AI</span><span id="txt"></span></div></div>
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const withAudio = q.get("audio") !== "0";
+  const showText = q.get("text") !== "0";
+  const hold = Number(q.get("hold") || 5) * 1000;
+  const cap = document.getElementById("cap"), txt = document.getElementById("txt"), hint = document.getElementById("hint");
+  let after = -1, hideT = 0, queue = [], playing = false, cur = null;
+
+  function show(line) {
+    if (!showText) return;
+    txt.textContent = "";
+    if (line.reply_to) {
+      const s = document.createElement("span"); s.className = "to"; s.textContent = "@" + line.reply_to + " ";
+      txt.appendChild(s);
+    }
+    txt.appendChild(document.createTextNode(line.text));
+    cap.className = "cap show h" + Math.max(0, Math.min(3, line.hype | 0));
+    clearTimeout(hideT);
+    hideT = setTimeout(() => cap.classList.remove("show"), hold);
+  }
+
+  function next() {
+    if (playing || !queue.length) return;
+    const line = queue.shift();
+    show(line);
+    if (!withAudio || !line.audio) return next();
+    playing = true;
+    const a = cur = new Audio(line.audio);
+    const done = () => { playing = false; next(); };
+    a.onended = done; a.onerror = done;
+    a.play().catch(done);
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch("/api/caster/feed?after=" + Math.max(0, after), { cache: "no-store" });
+      const d = await r.json();
+      hint.style.display = d.active ? "none" : (q.get("hint") === "0" ? "none" : "block");
+      if (after < 0) { after = d.last_id; }  // beim Öffnen nichts Altes nachspielen
+      else {
+        for (const line of d.lines) {
+          after = Math.max(after, line.id);
+          if (Date.now() / 1000 - line.ts > 12) continue;  // zu alt
+          if (line.kind === "shout") {  // Sofort-Ruf unterbricht den laufenden Satz
+            queue.unshift(line);
+            if (playing && cur) { cur.onended = cur.onerror = null; cur.pause(); playing = false; }
+          } else queue.push(line);
+        }
+        if (queue.length > 3) queue = queue.slice(0, 3);
+        next();
+      }
+    } catch (e) { hint.style.display = "block"; hint.textContent = "Yvara AI nicht erreichbar …"; }
+    setTimeout(poll, 200);
+  }
+  poll();
+})();
+</script>
+</body>
+</html>

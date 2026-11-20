@@ -1,0 +1,20 @@
+# Map-Wissen – trag hier eure Maps, Callouts und Setups ein.
+# Der Coach nutzt diese Infos für Pläne, Calls und Reviews.
+# Je mehr ihr hier pflegt, desto "map-spezifischer" coacht er.
+
+example_map:
+  name: "Beispiel-Map (umbenennen)"
+  modes: [hardpoint, snd, control]
+  callouts:
+    - "Mid / Kreuzung"
+    - "Gelbes Haus"
+    - "B-Treppen"
+  hardpoint:
+    hills: ["P1 Mitte", "P2 Lager", "P3 Bahnhof", "P4 Brücke", "P5 Dach"]
+    notes:
+      - "P1: Ersten Kontakt über Mitte nehmen, Anker im Gelben Haus."
+  snd:
+    attack_notes: ["Default über Mid, dann Split B"]
+    defense_notes: ["Einer hält Info A-Lange, Rest stack B"]
+  control:
+    notes: []

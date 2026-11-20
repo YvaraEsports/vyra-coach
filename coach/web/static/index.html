@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yvara AI</title>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<link rel="icon" href="/static/logo-256.png" sizes="256x256">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <nav class="rail">
+    <div class="brand"><img class="logo" src="/static/logo.svg" alt="Yvara AI"><div><div class="bname" id="coachName">Yvara AI</div><div class="bsub"><span id="appVersion"></span></div></div></div>
+    <div class="tabs">
+      <button data-tab="home" class="active"><span class="ic">🏠</span><span>Start</span></button>
+      <button data-tab="caster"><span class="ic">📣</span><span>Caster</span></button>
+      <button data-tab="match"><span class="ic">🎮</span><span>Match</span></button>
+      <button data-tab="study"><span class="ic">🎓</span><span>Lernen</span></button>
+      <button data-tab="tactic"><span class="ic">🗺️</span><span>Taktik</span></button>
+      <button data-tab="memory"><span class="ic">🧠</span><span>Gedächtnis</span></button>
+      <button data-tab="team"><span class="ic">👥</span><span>Team</span></button>
+      <button data-tab="sync"><span class="ic">🔗</span><span>Sync</span></button>
+      <button data-tab="settings"><span class="ic">⚙️</span><span>Einstellungen</span></button>
+      <button data-tab="console"><span class="ic">🖥️</span><span>Konsole</span></button>
+    </div>
+    <div class="grow"></div>
+    <div class="railteam">
+      <label class="lbl">Team</label>
+      <select id="teamSelect"></select>
+      <button class="ghost small" id="newTeamBtn">+ Neues Team</button>
+      <div id="newTeamRow" class="row hidden"><input id="newTeamName" class="grow" placeholder="Name, z. B. Yvara Z8"><button class="small" id="newTeamOk">✓</button><button class="ghost small" id="newTeamCancel">✕</button></div>
+    </div>
+  </nav>
+
+  <main class="main">
+    <header class="top">
+      <div id="matchBadge" class="badge">Kein Match</div>
+      <div id="focusBadge" class="badge hidden"></div>
+      <div id="brainBadge" class="badge brain-bad hidden" title="Klicken für Einstellungen"></div>
+      <div id="discordBadge" class="badge brain-bad hidden"></div>
+      <div class="grow"></div>
+      <label class="toggle"><input type="checkbox" id="speakToggle" checked> 🔊 Vorlesen</label>
+      <label class="toggle hidden" id="webToggleWrap"><input type="checkbox" id="webToggle"> 🌐 Recherche</label>
+      <button class="small call-btn" id="callBtn" type="button" title="Mit Yvara AI reden – ohne Discord, über Mikrofon und Lautsprecher">📞 Call</button>
+      <button class="ghost small" id="chatOpen" type="button">💬 Chat</button>
+      <button class="ghost small" id="quitBtn" type="button" title="Yvara AI komplett beenden (KI, Bot, Stimme)">⏻</button>
+    </header>
+    <div class="page">
+    <div class="tab" id="tab-home">
+      <div class="hero">
+        <img class="hero-logo" src="/static/logo.svg" alt="Yvara AI">
+        <div><h1>Hey, ich bin <span class="nm">Yvara AI</span>.</h1>
+        <p class="hint">Dein AI-Coach für Call of Duty. Alles läuft lokal auf deinem PC. Drück oben auf 📞 Call, um direkt mit mir zu reden, oder sag „Coach“ im Discord-Voice.</p></div>
+      </div>
+      <div id="callBox" class="callbox hidden">
+        <div class="call-orb" id="callOrb"><img src="/static/logo.svg" alt=""></div>
+        <div class="grow">
+          <b id="callState">Verbinde Mikrofon …</b>
+          <div class="hint" id="callHint">Einfach reden – Yvara AI hört zu, antwortet und merkt sich, was ihr besprecht. Kein Discord nötig.</div>
+          <div class="meter"><i id="callLevel"></i></div>
+          <ul id="callLog" class="calllog"></ul>
+        </div>
+        <button class="danger" id="callEnd" type="button">Auflegen</button>
+      </div>
+      <div class="cards">
+        <div class="card" id="cBrain"><span class="ic">🧠</span><div><b>KI</b><small>…</small></div></div>
+        <div class="card" id="cDiscord"><span class="ic">🎧</span><div><b>Discord</b><small>…</small></div></div>
+        <div class="card" id="cVoice"><span class="ic">🔊</span><div><b>Stimme</b><small>…</small></div></div>
+        <div class="card ok" id="cPrivacy"><span class="ic">🔒</span><div><b>Privat</b><small>Nichts geht ins Internet</small></div></div>
+      </div>
+      <h3 class="sec">Modus</h3>
+      <div class="tiles" id="modeTiles">
+        <button class="tile" data-mode="talk"><span class="ic">💬</span><b>Konversation</b><small>Einfach quatschen, keine Spiel-Tipps</small></button>
+        <button class="tile" data-mode="live"><span class="ic">🎙️</span><b>Match</b><small>Live-Calls im Spiel</small></button>
+        <button class="tile" data-mode="teach"><span class="ic">🏋️</span><b>Training</b><small>Schritt für Schritt üben</small></button>
+        <button class="tile" data-mode="observe"><span class="ic">👀</span><b>Zuschauen</b><small>Still, Feedback nach der Runde</small></button>
+        <button class="tile" data-mode="cast"><span class="ic">📣</span><b>Caster</b><small>Kommentiert Matches live für den Stream</small></button>
+      </div>
+      <h3 class="sec">Stil</h3>
+      <div class="tiles" id="vibeTiles">
+        <button class="tile" data-vibe="normal"><span class="ic">😎</span><b>Normal</b><small>Locker und ehrlich</small></button>
+        <button class="tile" data-vibe="toxic"><span class="ic">☠️</span><b>Toxisch</b><small>Flamet und roastet euch richtig</small></button>
+        <button class="tile" data-vibe="flirty"><span class="ic">😘</span><b>Flirty</b><small>Verspielt und frech</small></button>
+      </div>
+      <h3 class="sec">Stimme</h3>
+      <div class="tiles" id="voiceTiles"></div>
+    </div>
+    <div class="tab hidden" id="tab-caster">
+      <div class="hero caster-hero">
+        <div class="castswitch" id="castSwitch">
+          <button type="button" data-role="coach">🧠 Coach</button><button type="button" data-role="cast">📣 Caster</button>
+        </div>
+        <div><h1>Caster-Modus</h1>
+        <p class="hint">Yvara AI kommentiert Liga-Matches und Turniere live für deinen Stream: auf Deutsch oder Englisch, mit Emotionen, liest deinen Twitch-Chat mit und lernt von echten Casts. Läuft am besten auf einem zweiten Gerät (z. B. MacBook), damit dein Gaming-PC frei bleibt.</p>
+        <div class="row"><span class="pill" id="castSrcPill">Bild: –</span><span class="pill" id="castChatPill">Chat: aus</span><span class="pill" id="castOutPill">Ausgabe: –</span></div></div>
+      </div>
+      <h3 class="sec">Sprache</h3>
+      <div class="tiles" id="castLang">
+        <button class="tile" data-v="de"><span class="ic">🇩🇪</span><b>Deutsch</b><small>„Oh mein Gott, was für ein Play!“</small></button>
+        <button class="tile" data-v="en"><span class="ic">🇬🇧</span><b>English</b><small>“Oh my god, what a play!”</small></button>
+      </div>
+      <h3 class="sec">Stil</h3>
+      <div class="tiles" id="castStyle">
+        <button class="tile" data-v="hype"><span class="ic">🔥</span><b>Hype</b><small>Play-by-Play, laut, emotional</small></button>
+        <button class="tile" data-v="analyst"><span class="ic">📊</span><b>Analyst</b><small>Erklärt Rotations, Setups, Trades</small></button>
+        <button class="tile" data-v="funny"><span class="ic">😂</span><b>Entertainer</b><small>Sprüche und Banter mit dem Chat</small></button>
+      </div>
+      <h3 class="sec">Hype-Knöpfe (sofort, ohne KI-Wartezeit)</h3>
+      <div class="row moments" id="castMoments">
+        <button type="button" data-k="double">💥 Doppelkill</button><button type="button" data-k="multi">🤯 Multikill</button>
+        <button type="button" data-k="clutch">🧊 Clutch</button><button type="button" data-k="round_won">🏆 Runde gewonnen</button>
+        <button type="button" data-k="round_lost">💔 Runde verloren</button><button type="button" data-k="match_point">⚠️ Matchpoint</button>
+        <button type="button" data-k="comeback">📈 Comeback</button><button type="button" data-k="big_play">⚡ Großes Play</button>
+      </div>
+      <div class="castlive">
+        <div><h3 class="sec">Was Yvara AI sagt</h3><ul id="castLines" class="castlist"><li class="hint">Noch nichts – Caster starten.</li></ul></div>
+        <div><h3 class="sec">Twitch-Chat</h3><ul id="castChat" class="castlist"><li class="hint">Kein Chat verbunden.</li></ul></div>
+      </div>
+      <h3 class="sec">Einrichtung</h3>
+      <div class="castgrid">
+        <div>
+          <label class="lbl">Bildquelle (woher Yvara AI das Spiel sieht)</label>
+          <select id="castSrcKind">
+            <option value="stream">OBS übers Heimnetz (SRT, kaum Delay) – empfohlen für 2 Geräte</option>
+            <option value="sync">Sync vom Gaming-PC (Tab 🔗 Sync)</option>
+            <option value="screen">Dieser Bildschirm</option>
+            <option value="monitor">Bestimmter Monitor</option>
+            <option value="window">Bestimmtes Fenster</option>
+            <option value="device">Capture-Karte / Kamera</option>
+            <option value="twitch">Twitch-Stream (2–5 s Delay)</option>
+          </select>
+          <input id="castSrcRef" placeholder="Port, z. B. 9000">
+          <div class="hint" id="castSrcHint"></div>
+          <label class="lbl">Caster-Stimme</label><select id="castVoice"></select>
+          <label class="lbl">Wo die Stimme rauskommt</label>
+          <select id="castOutput"><option value="overlay">OBS-Overlay (Stimme + Untertitel direkt im Stream)</option><option value="local">Lautsprecher / Discord dieses Geräts</option></select>
+          <label class="toggle"><input type="checkbox" id="castLan"> Overlay im Heimnetz freigeben (für OBS auf dem Gaming-PC, wirkt nach Neustart)</label>
+          <div class="hint">OBS-Browserquelle: <code id="castOverlayUrl">–</code> <button class="ghost small" type="button" id="castCopyUrl">Kopieren</button></div>
+          <label class="lbl">Twitch-Kanal (Chat nur lesen, kein Login nötig)</label><input id="castTwitch" placeholder="z. B. yvaraesports">
+          <label class="lbl">Kommentar alle … Sekunden (wenn nichts Großes passiert)</label><input id="castInterval" type="number" min="3" max="30" step="1">
+        </div>
+        <div>
+          <label class="lbl">Match-Info (hilft Yvara AI beim Casten)</label>
+          <input id="castTitle" placeholder="Event, z. B. Liga Spieltag 4 – Hardpoint auf Skyline">
+          <div class="row"><input id="castTeamA" placeholder="Team A"><input id="castTeamB" placeholder="Team B"><input id="castScore" placeholder="Stand, z. B. 1-0"></div>
+          <label class="lbl">Killfeed-Bereich (für Sofort-Reaktion auf Doppel-/Multikills)</label>
+          <div class="castprev"><img id="castPreview" alt="" onerror="this.style.visibility='hidden'" onload="this.style.visibility='visible'"></div>
+          <div class="row"><label class="mini">Links %<input id="kfX" type="number" min="0" max="100"></label><label class="mini">Oben %<input id="kfY" type="number" min="0" max="100"></label><label class="mini">Breite %<input id="kfW" type="number" min="1" max="100"></label><label class="mini">Höhe %<input id="kfH" type="number" min="1" max="100"></label></div>
+          <div class="row"><button class="ghost small" type="button" id="kfPreset">CoD-Standard</button><button class="ghost small" type="button" id="kfOff">Aus</button><button class="ghost small" type="button" id="castPrevBtn">Vorschau aktualisieren</button></div>
+          <div class="hint">Der lila Rahmen soll genau den Killfeed abdecken. Dann ruft Yvara AI bei 2+ Kills in kurzer Zeit sofort („Ohhh, Doppelkill!“) und sagt 1–3 s später, wer es war.</div>
+        </div>
+      </div>
+      <div class="row"><button type="button" id="castSave">Einstellungen speichern</button></div>
+      <h3 class="sec">Von Casts lernen</h3>
+      <p class="hint">Gib Yvara AI Casts zum Anschauen: Videodatei, YouTube-/Twitch-Link oder Text (Transkript). Sie hört lokal zu und lernt typische Sprüche, Übergänge und wie Profis Hype aufbauen. Nutze nur Inhalte, die du dafür verwenden darfst.</p>
+      <div class="row"><input type="file" id="castLearnFile" accept="video/*,audio/*"><input id="castLearnUrl" placeholder="https://www.youtube.com/watch?v=…" style="flex:1"></div>
+      <textarea id="castLearnText" rows="3" placeholder="…oder Transkript eines Casts hier einfügen"></textarea>
+      <div class="row"><button type="button" id="castLearnBtn">📚 Lernen</button><span class="hint" id="castLearnState"></span></div>
+    </div>
+
+    <div class="tab hidden" id="tab-match">
+      <label class="lbl">👀 Bildschirm zeigen – Yvara AI schaut zu</label>
+      <p class="hint">Dein Spiel, der Discord-Stream eines Mates oder die Caster-Ansicht: Yvara AI sieht mit, versteht das Spiel und den Team-Zusammenhang und du kannst sie dazu fragen. Per Stimme: „Coach, schau zu“ / „Coach, hör auf zuzuschauen“.</p>
+      <div class="row"><select id="wSource"></select><button class="small" id="wToggle">▶ Zuschauen</button></div>
+      <label class="toggle"><input type="checkbox" id="wComment"> Yvara AI darf beim Zuschauen von sich aus kommentieren</label>
+      <div id="wBox" class="hidden">
+        <div class="watch-live"><img id="wImg" alt="Live-Vorschau"><span class="wbadge">● Yvara AI schaut zu</span></div>
+        <div id="wLast" class="hint"></div>
+      </div>
+      <hr style="border-color:var(--line);margin:14px 0">
+      <label class="lbl">Coaching-Modus</label>
+      <select id="cMode"><option value="talk">💬 Konversation (Standard beim Start)</option><option value="live">🎙 Live-Coaching (macht Calls)</option><option value="observe">👀 Nur zuschauen (Feedback nach Runde/Map)</option><option value="teach">🏋️ Training / Private Match</option><option value="cast">📣 Caster (kommentiert für den Stream)</option></select>
+      <div id="teachBox" class="hidden">
+        <div class="row"><input id="lsTopic" class="grow" placeholder="Thema, z. B. B-Retake auf SnD, Hardpoint P3 Setup"><button class="small" id="lsStart">Erklären</button></div>
+        <div id="lsInfo" class="hint"></div>
+        <div class="row"><button class="ghost small" id="lsRepeat">🔁 Wiederholen</button><button class="small" id="lsNext">➡ Weiter</button><button class="danger small" id="lsStop">■</button></div>
+      </div>
+      <label class="lbl">Spielmodus</label>
+      <select id="mMode"><option value="hardpoint">Hardpoint</option><option value="snd">Search &amp; Destroy</option><option value="control">Control</option><option value="hijack">Hijack</option></select>
+      <label class="lbl">Map</label><input id="mMap" placeholder="z. B. Map-Name">
+      <label class="lbl">Gegner</label><input id="mOpp" placeholder="Teamname">
+      <div class="row"><button id="planBtn" class="ghost">📋 Plan</button><button id="startBtn">▶ Start</button></div>
+      <div class="row"><input id="mOurs" placeholder="Uns" type="number"><input id="mEnemy" placeholder="Gegner" type="number"><button id="endBtn" class="danger">■ Ende</button></div>
+      <div class="row"><button id="clipBtn" class="ghost small">🎬 Clip</button><button id="timeoutBtn" class="ghost small">⏸ Timeout</button><button id="trainingBtn" class="ghost small">🏋️ Training</button><button id="scoutBtn" class="ghost small">🔎 Scout</button></div>
+      <label class="lbl">Fokus-Spieler (einzeln coachen)</label>
+      <select id="focusSelect"></select>
+      <label class="lbl">Bildquellen (ein Feed pro Spieler)</label>
+      <div id="feedRows"></div>
+      <div class="row"><button class="ghost small" id="addFeed">+ Feed</button><label class="toggle"><input type="checkbox" id="autoFocus" checked> Auto-Fokus</label><button class="small" id="saveFeeds">Übernehmen</button></div>
+      <label class="lbl">Live-Calls</label>
+      <ul id="feed" class="feed"></ul>
+      <label class="lbl">Statistik</label>
+      <div id="stats" class="md small"></div>
+    </div>
+
+    <div class="tab hidden" id="tab-study">
+      <label class="lbl">📈 Lernstand</label>
+      <div id="lpTotals" class="stats"></div>
+      <div id="lpNow" class="now hidden"><div class="nowtxt"></div><div class="bar"><i></i></div></div>
+      <label class="lbl">Lernverlauf – was Yvara AI geschaut und gelernt hat</label>
+      <ul id="lpHistory" class="hist"></ul>
+      <p class="hint">Der Verlauf liegt in <code>data/library</code> und bleibt bei Updates erhalten.</p>
+      <hr style="border-color:var(--line);margin:16px 0">
+      <label class="lbl">🎓 Fortbildungsmodus</label>
+      <p class="hint">Yvara AI sucht selbst Videos (YouTube, CDL-VODs auf Twitch), schaut sie, lernt und entwickelt eigene Taktiken für euch – bis du stoppst. Geschickte Links schaut sie zuerst.</p>
+      <label class="lbl">Spiel (nur dieses lernen)</label>
+      <div class="row"><input id="alGame" placeholder="Modern Warfare 4"><button class="ghost small" id="alGameSave">Übernehmen</button></div>
+      <label class="toggle"><input type="checkbox" id="alAuto"> Automatisch im Hintergrund lernen, sobald Yvara AI läuft (pausiert bei Matches und Gesprächen)</label>
+      <input id="alTopics" placeholder="Fokus, z. B. Hijack Setups, SnD Retakes, Hardpoint Rotationen">
+      <textarea id="alLinks" rows="3" placeholder="Links (einer pro Zeile) – YouTube, Twitch-VODs …"></textarea>
+      <div class="row"><button id="alStart">▶ Fortbildung starten</button><button id="alStop" class="danger">■ Stopp</button></div>
+      <div id="alStatus" class="hint"></div>
+      <label class="lbl">Warteschlange</label>
+      <ul id="alQueue" class="mems"></ul>
+      <label class="lbl">Eigene Taktiken für dieses Team</label>
+      <div id="alIdeas" class="md small"></div>
+      <hr style="border-color:var(--line);margin:16px 0">
+      <label class="lbl">📚 Einzelne Lern-Session</label>
+      <p class="hint">Yvara AI schaut Pro-Matches, Streams, VODs, Highlights oder eure Scrims und lernt daraus.
+      Für Live-Streams (Twitch, CDL, Discord-Übertragung) den Stream öffnen und „Bildschirm“ wählen.</p>
+      <label class="lbl">Quelle</label>
+      <input id="stSource" placeholder="Video-Link, Dateipfad oder leer = Bildschirm">
+      <label class="lbl">Titel</label><input id="stTitle" placeholder="z. B. CDL Major – Team A vs Team B">
+      <label class="lbl">Modus (optional)</label>
+      <select id="stMode"><option value="">automatisch erkennen</option><option value="hardpoint">Hardpoint</option><option value="snd">Search &amp; Destroy</option><option value="control">Control</option><option value="hijack">Hijack</option></select>
+      <label class="toggle"><input type="checkbox" id="stOwn"> Das ist UNSER Team (Fehler-Analyse ins Team-Gedächtnis)</label>
+      <div class="row"><button id="stStart">▶ Lernen starten</button><button id="stStop" class="danger">■ Stop</button></div>
+      <div id="stStatus" class="hint"></div>
+      <label class="lbl">Playbooks</label>
+      <div id="playbooks" class="md small"></div>
+      <label class="lbl">Neueste Lektionen (<span id="lessonCount">0</span>)</label>
+      <ul id="lessons" class="mems"></ul>
+    </div>
+
+    <div class="tab hidden" id="tab-tactic">
+      <label class="lbl">🗺️ Strat-Board</label>
+      <p class="hint">Taktik auf die Map zeichnen (Pfeile, Spieler, Gegner, Texte), speichern und in Discord posten.</p>
+      <button id="sbNew">＋ Neue Strat zeichnen</button>
+      <ul id="sbList" class="strats"></ul>
+      <hr style="border-color:var(--line);margin:16px 0">
+      <label class="lbl">🔥 Heatmaps pro Map</label>
+      <p class="hint">Aus der Minimap aller Matches: <b style="color:#4aa3ff">blau</b> = ihr, <b style="color:#ff5a5a">rot</b> = Gegner, <b style="color:#ffd84a">gelb</b> = Kampfzonen. Braucht eine eingerichtete Minimap (Kalibrierung).</p>
+      <div class="row"><select id="hmMap"></select><select id="hmLayer"><option value="all">Alles</option><option value="ours">Wir</option><option value="enemy">Gegner</option><option value="fights">Kampfzonen</option></select></div>
+      <img id="hmImg" class="hm hidden" alt="Heatmap">
+      <div id="hmInfo" class="hint"></div>
+      <button class="ghost small" id="hmPost">In Discord posten</button>
+      <hr style="border-color:var(--line);margin:16px 0">
+      <label class="lbl">⏱️ Timer &amp; Gegner-Muster</label>
+      <p class="hint">Per Stimme: „Coach, Timer 30 Sekunden“, „Coach, Hill ist neu“ (Hill-Uhr mit „Zwei Mann vorrotieren“), „Coach, Timer aus“.
+      In SnD startet der Bomben-Timer automatisch, wenn jemand „geplantet“ oder „Bombe liegt“ callt. Wiederkehrende Gegner-Wege aus euren Calls und der Minimap sagt Yvara AI live an und merkt sie sich pro Gegner und Map.</p>
+    </div>
+
+    <div class="tab hidden" id="tab-memory">
+      <p class="hint">Was Yvara AI sich zu diesem Team merkt. Sie lernt automatisch aus allem, was ihr mit ihr redet (auch per Stimme), aus Chats und Matches – ohne dass ihr „merk dir“ sagen müsst. Falsches einfach löschen.</p>
+      <div class="row"><input id="memInput" placeholder="Neue Erinnerung …"><button id="memAdd">+</button></div>
+      <ul id="memList" class="mems"></ul>
+    </div>
+
+    <div class="tab hidden" id="tab-team">
+      <label class="lbl">Teamname</label><input id="tName">
+      <label class="lbl">Spieler (In-Game · Rolle)</label>
+      <div id="players"></div>
+      <button class="ghost small" id="addPlayer">+ Spieler</button>
+      <label class="lbl">Team-Notizen (Stil, Ziele, Regeln)</label>
+      <textarea id="tNotes" rows="5"></textarea>
+      <button id="saveTeam">Speichern</button>
+      <label class="lbl">📍 Map-Callouts</label>
+      <p class="hint">Damit Yvara AI eure Calls versteht („zwei Top Bridge, einer lit“) und Positionen beim Namen nennt.
+      Zone = Feld auf der Minimap (5×5, A1 oben links). Yvara AI lernt auch selbst dazu.</p>
+      <div class="row"><input id="coMap" class="grow" list="coMaps" placeholder="Map"><datalist id="coMaps"></datalist><button class="ghost small" id="coLoad">Laden</button></div>
+      <ul id="coList" class="mems"></ul>
+      <div class="row"><input id="coName" placeholder="Callout, z. B. Top Bridge" class="grow"><input id="coZone" placeholder="Zone" style="width:64px"></div>
+      <div class="row"><input id="coAlias" class="grow" placeholder="andere Namen, mit Komma"><button class="small" id="coAdd">+</button></div>
+      <label class="lbl">Profil ansehen</label>
+      <select id="profSelect"></select>
+      <div id="profile" class="md small"></div>
+    </div>
+
+    <div class="tab hidden" id="tab-settings">
+      <label class="lbl">KI-Modell (Gehirn)</label>
+      <select id="sProvider"><option value="ollama">Ollama (lokal, kostenlos, privat)</option><option value="claude">Claude-API (🔒 gesperrt: Daten gingen ins Internet)</option><option value="openai">LM Studio / OpenAI-kompatibel (lokal)</option></select>
+      <label class="lbl">Lokales Modell</label><input id="sLocalModel" placeholder="empfohlen: gemma3:12b (wird automatisch geladen)">
+      <label class="lbl">Server-Adresse (leer = Standard)</label><input id="sBaseUrl" placeholder="http://localhost:11434/v1">
+      <label class="toggle"><input type="checkbox" id="sLocalVision"> Modell versteht Bilder (für Spielanalyse nötig)</label>
+      <label class="lbl">Dein Discord-Name (dann kommt Yvara AI bei „Coach, komm rein“ immer in DEINEN aktuellen Channel)</label><input id="sFollow" placeholder="z. B. yvara_daniel – leer = wer zuletzt /coach join benutzt hat">
+      <label class="lbl">Gaming-Modus (CoD flüssig halten)</label>
+      <select id="sGaming"><option value="auto">Automatisch, sobald Call of Duty läuft (empfohlen)</option><option value="on">Immer an</option><option value="off">Aus (volle KI, kann FPS kosten)</option></select>
+      <label class="lbl">KI-Modell im Gaming-Modus</label><input id="sGameModel" placeholder="gemma3:4b (klein, schnell, ≈ 3–4 GB Grafikspeicher)">
+      <div id="gamingInfo" class="hint"></div>
+      <label class="lbl">Name des Coaches</label><input id="sName">
+      <label class="lbl">Persönlichkeit</label><textarea id="sPers" rows="5"></textarea>
+      <label class="lbl">Stil (auch per Stimme: „Coach, sei toxisch“, „Coach, Flirt-Modus“, „Coach, wieder normal“)</label>
+      <select id="sVibe"><option value="normal">Normal</option><option value="toxic">Toxisch aus Spaß (roastet euch, ohne echte Beleidigungen)</option><option value="flirty">Charmant / flirty (frech, aber jugendfrei)</option></select>
+      <label class="lbl">Trash Talk: so hart feuert sie zurück, wenn man sie beleidigt (sie spiegelt deinen Ton)</label>
+      <select id="sRoast"><option value="0">Aus – bleibt freundlich</option><option value="1">Frech – kleine Spitzen</option><option value="2">Hart – salzig, Fluchen erlaubt</option><option value="3">Brutal – keine Gnade (nie gegen Herkunft, Religion, Sexualität usw.)</option></select>
+      <label class="lbl">Sprache</label>
+      <select id="sLang"><option value="auto">Automatisch</option><option value="de">Deutsch</option><option value="en">English</option></select>
+      <label class="lbl">Stimme</label>
+      <select id="sEngine"><option value="xtts">XTTS – beste Qualität, eigene Stimmen (Grafikkarte)</option><option value="supertonic">Supertonic – sehr schnell, ohne Grafikkarte (DE/EN, keine eigenen Stimmen)</option><option value="piper">Piper – schnell, einfacher Klang</option></select>
+      <div id="xttsBox">
+        <div id="xttsInfo" class="hint"></div>
+        <div class="row"><button id="voiceTest" class="ghost" type="button">🔎 Stimme testen</button></div>
+        <div id="voiceTestOut" class="hint hidden"></div>
+        <label class="lbl">Stimme (Deutsch, und Englisch wenn unten nichts anderes gewählt)</label><select id="sXttsVoice"></select>
+        <label class="lbl">Stimme für Englisch</label><select id="sXttsVoiceEn"></select>
+      </div>
+      <div id="supBox">
+        <label class="lbl">Supertonic-Stimme</label>
+        <select id="sSupVoice"><option value="M1">Männlich 1</option><option value="M2">Männlich 2</option><option value="M3">Männlich 3</option><option value="M4">Männlich 4</option><option value="M5">Männlich 5</option><option value="F1">Weiblich 1</option><option value="F2">Weiblich 2</option><option value="F3">Weiblich 3</option><option value="F4">Weiblich 4</option><option value="F5">Weiblich 5</option></select>
+      </div>
+      <div id="piperBox">
+        <label class="lbl">Piper-Stimme Deutsch</label><input id="sPiperDe" list="piperList" placeholder="de_DE-thorsten-high oder Pfad zu eigener .onnx">
+        <label class="lbl">Piper-Stimme Englisch</label><input id="sPiperEn" list="piperList" placeholder="en_US-ryan-high">
+        <datalist id="piperList"></datalist>
+        <label class="toggle"><input type="checkbox" id="sSameVoice"> Deutsche Stimme auch für Englisch benutzen (gleicher Klang, Akzent möglich)</label>
+      </div>
+      <label class="lbl">Sprechtempo: <span id="speedVal">1.0</span>×</label><input id="sSpeed" type="range" step="0.05" min="0.7" max="1.5">
+      <div class="row"><button class="ghost small" id="prevDe">▶ Vorhören Deutsch</button><button class="ghost small" id="prevEn">▶ Preview English</button></div>
+      <details class="voiceown"><summary>🎙️ Eigene Stimme (deine oder die eines Mates)</summary>
+        <p class="hint">Yvara AI spricht dann mit dieser Stimme – auf Deutsch und Englisch. Nimm 15–30 Sekunden klar und ohne Musik auf, z. B. diesen Text:</p>
+        <p class="hint readme">„Hey Leute, wir spielen heute ruhig und sauber. Rotiert früh zum nächsten Hill, tradet eure Kills und redet viel. Okay, let's go – rotate early, trade your kills and keep the comms clean.“</p>
+        <label class="lbl">Name</label><input id="cvName" placeholder="z. B. Daniel">
+        <label class="lbl">Verwenden für</label>
+        <select id="cvUse"><option value="both">Deutsch und Englisch</option><option value="de">nur Deutsch</option><option value="en">nur Englisch</option></select>
+        <label class="toggle"><input type="checkbox" id="cvConsent"> Das ist meine eigene Stimme oder die Person hat zugestimmt, dass Yvara AI mit ihrer Stimme spricht.</label>
+        <div class="row"><button class="small" id="cvRec">⏺ Aufnahme starten</button><span id="cvTime" class="hint"></span></div>
+        <label class="lbl">… oder Datei(en) hochladen – auch WhatsApp-Sprachnachrichten (.opus, .ogg, .mp3, .m4a, .wav)</label>
+        <input id="cvFile" type="file" multiple accept="audio/*,.opus,.ogg,.oga,.mp3,.m4a,.aac,.wav,.flac,.webm,.mp4">
+        <p class="hint">Kurze Sprachnachrichten? Einfach mehrere auf einmal auswählen – Yvara AI setzt sie zusammen (zusammen mind. 10 s, ideal 15–30 s).</p>
+        <div class="row"><button class="small" id="cvSave">Stimme speichern</button></div>
+        <div id="cvInfo" class="hint"></div>
+        <div id="cvSlots" class="hint"></div>
+        <ul id="cvList" class="mems"></ul>
+      </details>
+      <label class="lbl">Spracherkennung (wirkt nach Neustart)</label>
+      <select id="sStt"><option value="parakeet">Parakeet v3 – CPU/OpenVINO, spart Grafikspeicher (Standard)</option><option value="whisper">Whisper – Grafikkarte, sehr genau</option></select>
+      <label class="lbl">Bildanalyse alle … Sekunden</label><input id="sVision" type="number" min="5">
+      <label class="lbl">Push-to-Talk-Taste (leer = Wake-Word)</label><input id="sPtt" placeholder="z. B. f8">
+      <label class="toggle"><input type="checkbox" id="sCallouts"> Live-Calls aktiv</label>
+      <label class="toggle hidden" id="sWebWrap"><input type="checkbox" id="sWeb"> Online-Recherche standardmäßig an</label>
+      <button id="saveSettings">Speichern</button>
+      <label class="lbl">Updates</label>
+      <div id="updInfo" class="hint">–</div>
+      <div class="row"><button class="ghost small" id="updCheck">Nach Updates suchen</button><button class="small hidden" id="updApply">Jetzt updaten</button></div>
+    </div>
+
+    <div class="tab hidden" id="tab-sync">
+      <div class="hero"><img class="hero-logo" src="/static/logo.svg" alt=""><div><h1>Sync – zwei Geräte</h1>
+        <p class="hint">Die KI läuft auf dem Laptop/MacBook, dein Gaming-PC bleibt frei für CoD. Der PC schickt nur Bild und/oder Ton übers Heimnetz – ohne Internet, mit Kopplungs-Code.</p></div></div>
+      <h3 class="sec">Was macht dieses Gerät?</h3>
+      <div class="tiles" id="syncRole">
+        <button class="tile" data-v="off"><span class="ic">💻</span><b>Alles hier</b><small>Ein Gerät: KI, Bild und Ton auf diesem Computer</small></button>
+        <button class="tile" data-v="receive"><span class="ic">🧠</span><b>KI-Gerät (empfängt)</b><small>Laptop/MacBook: Yvara AI denkt hier, bekommt Bild/Ton vom PC</small></button>
+        <button class="tile" data-v="send"><span class="ic">🎮</span><b>Gaming-PC (sendet)</b><small>Schickt nur Bild/Ton, keine KI auf diesem PC</small></button>
+      </div>
+      <div id="syncRecvBox" class="callbox hidden" style="flex-direction:column">
+        <b>Auf dem Gaming-PC eintragen:</b>
+        <div class="row"><span class="pill">Adresse: <b id="syncIp">–</b></span><span class="pill">Kopplungs-Code: <b id="syncCode">–</b></span><span class="pill" id="syncRecvState">Wartet auf den PC …</span></div>
+        <div class="hint">Wähle als Bildquelle „Sync“ (Caster) – im Coach-Modus nutzt Yvara AI das PC-Bild automatisch. Ton vom PC hört sie wie Discord-Comms.</div>
+      </div>
+      <div id="syncSendBox" class="hidden">
+        <label class="lbl">Adresse des Laptops (steht dort unter Sync)</label><input id="syncHost" placeholder="z. B. 192.168.178.40">
+        <label class="lbl">Kopplungs-Code (6 Ziffern, steht auf dem Laptop)</label><input id="syncPair" placeholder="123456" maxlength="6">
+        <label class="toggle"><input type="checkbox" id="syncVideo" checked> 🖥️ Bild schicken</label>
+        <label class="toggle"><input type="checkbox" id="syncAudio" checked> 🔊 PC-Sound schicken (Discord-Comms, Spiel)</label>
+        <label class="toggle"><input type="checkbox" id="syncMic"> 🎙️ Mikrofon schicken (mit Yvara AI über das PC-Headset reden)</label>
+        <label class="lbl">Bildschirm</label><input id="syncMon" type="number" min="1" max="6" value="1">
+      </div>
+      <div class="row"><button type="button" id="syncSave">Speichern & Yvara AI neu starten</button><span class="hint" id="syncInfo"></span></div>
+    </div>
+
+    <div class="tab hidden" id="tab-console">
+      <div class="row between"><h3 class="sec" style="margin:0">🖥️ Was Yvara AI gerade macht</h3><label class="toggle"><input type="checkbox" id="logFollow" checked> Automatisch mitlaufen</label></div>
+      <pre id="logBox" class="logbox">…</pre>
+    </div>
+    </div>
+  </main>
+
+  <aside class="chat hidden" id="chatDock">
+    <div class="chathead"><b>💬 Yvara AI fragen</b><div class="grow"></div><button class="ghost small" id="newChatBtn" type="button">+ Neu</button><button class="ghost small" id="chatClose" type="button">✕</button></div>
+    <ul id="sessionList" class="sessions"></ul>
+    <section id="messages" class="messages">
+      <div class="empty" id="emptyState">
+        <p>Frag <span class="nm">Yvara AI</span> was du willst. Halte 🎙️ gedrückt, um zu sprechen.</p>
+      </div>
+    </section>
+    <form class="composer" id="composer">
+      <button type="button" id="micBtn" class="mic" title="Gedrückt halten zum Sprechen">🎙️</button>
+      <textarea id="input" rows="1" placeholder="Nachricht an Yvara AI …"></textarea>
+      <button type="submit" class="send">➤</button>
+    </form>
+  </aside>
+</div>
+<div id="sbModal" class="modal hidden">
+  <div class="modal-box">
+    <div class="sb-top">
+      <input id="sbName" placeholder="Name der Strat, z. B. B-Split Rush">
+      <select id="sbMap"></select>
+      <select id="sbMode"><option value="">Modus</option><option value="hardpoint">Hardpoint</option><option value="snd">SnD</option><option value="control">Control</option><option value="hijack">Hijack</option></select>
+      <button class="ghost small" id="sbClose">✕</button>
+    </div>
+    <div class="sb-tools">
+      <button data-tool="pen" class="active" title="Freihand">✏️</button>
+      <button data-tool="arrow" title="Pfeil (Laufweg)">➜</button>
+      <button data-tool="circle" title="Bereich / Position">◯</button>
+      <button data-tool="x" title="Gegner">✕</button>
+      <button data-tool="player" title="Spieler setzen">👤</button>
+      <select id="sbPlayer"></select>
+      <button data-tool="text" title="Text">T</button>
+      <input id="sbText" placeholder="Text" style="width:110px">
+      <span class="sb-colors"><i data-c="#ff4655" class="on"></i><i data-c="#3fa7ff"></i><i data-c="#ffd84a"></i><i data-c="#3ad29f"></i><i data-c="#ffffff"></i></span>
+      <button class="ghost small" id="sbUndo">↶</button><button class="ghost small" id="sbClear">Leeren</button>
+      <label class="ghost small sb-up">Kartenbild…<input type="file" id="sbBg" accept="image/*" hidden></label>
+    </div>
+    <canvas id="sbCanvas" width="600" height="600"></canvas>
+    <textarea id="sbNotes" rows="2" placeholder="Notizen: wer macht was, Timing, Utility …"></textarea>
+    <div class="row"><button id="sbSave">Speichern</button><button class="ghost" id="sbSavePost">Speichern + in Discord posten</button></div>
+  </div>
+</div>
+<div id="toasts" class="toasts"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
