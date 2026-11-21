@@ -165,6 +165,7 @@ class WebUI:
         r.add_post("/api/voice", self.voice)
         r.add_post("/api/call", self.call)
         r.add_post("/api/speak", self.speak)
+        r.add_get("/api/health", self.health)
         r.add_get("/api/memories", self.memories)
         r.add_post("/api/memories", self.add_memory)
         r.add_delete("/api/memories/{mid}", self.delete_memory)
@@ -598,6 +599,16 @@ class WebUI:
         else:
             log.info("App-Call: keine Antwort auf „%s“", text[:80])
         return web.json_response({"text": text, "lang": lang, "replies": replies})
+
+    async def health(self, req):
+        """Selbst-Check für die App: was gerade nicht funktioniert und wie man es behebt."""
+        from .. import health
+
+        if req.query.get("force"):
+            self.coach._brain_cache = None
+        probs = await health.check(self.coach)
+        self.coach.health = probs
+        return web.json_response({"problems": probs})
 
     async def speak(self, req):
         """Einen Satz vertonen (für den App-Call: weitere Sätze, während der vorige läuft)."""

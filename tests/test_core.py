@@ -2171,3 +2171,30 @@ def test_watch_without_picture_is_reported(tmp_path, monkeypatch):
     ok, why = coach.watch_seeing()
     assert not ok and "schwarz" in why
     assert "NO picture" in coach._screen_note()
+
+
+def test_health_check_reports_problems_honestly(tmp_path, monkeypatch):
+    from coach import health
+    coach = _coach(tmp_path, monkeypatch)
+
+    async def down(force=False):
+        return {"ok": False, "message": "Ollama nicht erreichbar"}
+    coach.brain_status = down
+    coach.discord_error = "Discord-Token ungültig"
+    coach.startup_problems["audio"] = "kein Mikrofon gefunden"
+    probs = asyncio.run(health.check(coach))
+    keys = {p["key"] for p in probs}
+    assert {"brain", "discord", "hearing"} <= keys and all(p["fix"] for p in probs)
+    txt = health.summary_for_llm(probs)
+    assert "BROKEN" in txt and "Ollama" in txt
+    assert health.summary_for_llm([]) == ""
+
+
+def test_trouble_question_not_answered_live_on_stream(tmp_path, monkeypatch):
+    from coach.brain.coach import TROUBLE_RE
+    coach = _coach(tmp_path, monkeypatch)
+    assert TROUBLE_RE.search("coach das bild funktioniert nicht") and TROUBLE_RE.search("hilf mir das zu beheben")
+    coach.set_mode("cast", announce=False)
+    coach.voice.said.clear()
+    assert asyncio.run(coach.answer("Coach, warum funktioniert der Ton nicht?", "de")) is None
+    assert coach.voice.said == []

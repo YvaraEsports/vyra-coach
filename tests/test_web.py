@@ -271,3 +271,15 @@ def test_parakeet_language_guess():
     assert guess_language("How are you doing today bro?") == "en"
     assert guess_language("Hardpoint P2 rotate") in ("de", "en")
     assert guess_language("Schön") == "de"
+
+
+def test_health_endpoint(tmp_path, monkeypatch):
+    coach = _coach(tmp_path, monkeypatch)
+    coach.discord_error = "Discord-Token ungültig"
+    ui = WebUI(coach.cfg, coach, FakeTTS())
+
+    async def go():
+        async with TestClient(TestServer(ui.app)) as c:
+            r = await (await c.get("/api/health?force=1")).json()
+            assert any(p["key"] == "discord" for p in r["problems"])
+    asyncio.run(go())

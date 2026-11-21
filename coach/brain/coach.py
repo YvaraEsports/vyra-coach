@@ -18,6 +18,7 @@ from .callouts import CalloutIndex, annotate
 from .llm import LLM, image_block
 
 from ..audio.output import clean_for_speech  # noqa: E402
+from ..health import summary_for_llm as health_summary  # noqa: E402
 
 # Sätze, die während eines App-Calls gesagt werden, landen nur in DIESEM Call – nicht die Antworten, die
 # parallel aufs Discord-Mikro/Loopback reagieren (die sollen nicht doppelt in der App auftauchen).
@@ -97,6 +98,10 @@ ASK_PHRASES = ("was machen wir", "was sollen wir", "wie spielen wir", "wo sollen
 HELP_RE = re.compile(r"(wie funktioniert (die app|das programm|der caster|der sync|du)|wie geht das|wo finde ich|wo stell ich|"
                      r"wie stell ich|wie kann ich (dich|die app|den caster|das overlay)|wie benutze ich|was bedeutet der knopf|"
                      r"how do i (use|set up|turn on)|how does (the app|this app|the caster|sync) work|where do i find)")
+TROUBLE_RE = re.compile(r"((funktioniert|geht|klappt|läuft|laeuft)\b.{0,30}?\b(nicht|nie)\b|kaputt|"
+                        r"\bbug\b|hilf mir (das |es )?(zu )?(beheben|reparieren|fixen)|was ist (los|kaputt) mit dir|"
+                        r"warum (hörst|siehst|redest|sprichst|antwortest) du (mich )?nicht|not working|doesn'?t work|broken|"
+                        r"help me fix|what'?s wrong with you|troubleshoot)")
 EXPLAIN_RE = re.compile(r"(erklär|erklaer|check (das|ich|des) nicht|versteh (das|ich) nicht|verstehe (das )?nicht|kapier|"
                         r"wie funktionier|wie laufen die spawns|wie funktionieren die spawns|was ist (ein|eine|der|die|das) |"
                         r"warum (muss|soll|sollte)|wann muss ich|wann soll ich|explain|don't get|dont get|how do (spawns|rotations) work|"
@@ -211,6 +216,9 @@ class Coach:
         self.library = None   # Taktik-Bibliothek (Lern-Modus), von app.py gesetzt
         self._co_cache = None  # (map, ts, CalloutIndex)
         self.discord_error = ""  # wird gesetzt, wenn der Discord-Bot nicht starten konnte
+        self.health: list[dict] = []  # Selbst-Check (coach/health.py): was gerade nicht funktioniert
+        self.startup_problems: dict[str, str] = {}
+        self.started_at = time.time()
         self.studier = None
         self.autolearn = None
         self.feeds = None     # Mehrere Bildquellen (FeedManager), von app.py gesetzt
@@ -1007,16 +1015,25 @@ class Coach:
         explain = bool(EXPLAIN_RE.search(nq)) and not live_now
         tactic = bool(TACTIC_Q_RE.search(nq)) and not live_now
         words = 160 if explain else 140 if caps or app_help else 110 if tactic else self.cfg.get_path("llm.max_answer_words", 35)
+        trouble = bool(TROUBLE_RE.search(nq))
+        if trouble and self.mode == "cast":  # live auf Stream: keine Technik-Hilfe on air – das läuft privat in der App
+            log.info("Problem-Frage im Caster-Modus – nicht live beantwortet (Hilfe im App-Chat / Kasten „Probleme“): %s",
+                     question)
+            return None
         smalltalk = hasattr(self, "game_focus") and not self.game_focus() and not (tactic or caps or explain or app_help)
         extra = ("\n\n" + P.CAPABILITIES.format(name=self.name)) if caps or app_help else ""
         if explain:
             extra += P.EXPLAIN
+        if trouble:
+            extra += P.TROUBLESHOOT
         if smalltalk:  # niemand spielt: normaler Gesprächspartner, kurzer Prompt = schnellere Antwort
             words = max(int(words), 45)
             system = self._sys(P.SMALLTALK)
         else:
             system = self._sys(P.LIVE_ANSWER, extra=extra, max_words=words)
         long = caps or app_help or explain
+        if smalltalk and (trouble or getattr(self, "health", None)):
+            system += P.TROUBLESHOOT  # bekannte Probleme / Problem-Frage: ehrlich bleiben, auch im Smalltalk
         system += ("\n\nThis is read aloud in voice chat: " + ("a complete but natural spoken explanation, 5-10 sentences. "
                    if long else "1-2 short sentences, one thought. " if smalltalk else "1-3 short sentences. ") + "Plain words only. "
                    "No emojis, no (haha)/*actions*, no lists, no markdown. Answer in the language of the question.")
@@ -1032,6 +1049,9 @@ class Coach:
         elif self.last_frame is not None and self.tracker.state.active:
             content.append(image_block(to_jpeg_b64(self.last_frame, int(self.cfg.get_path("capture.vision_width", 1280)))))
         ctx = self._smalltalk_context(question) if smalltalk else self._live_context()
+        status = health_summary(getattr(self, "health", None) or [])
+        if status or trouble:
+            ctx += "\n\n" + (status or "YOUR OWN STATUS: your self-check finds no problem right now.")
         content.append({"type": "text", "text": f"{ctx}\n\nANSWER IN: {lang}\nPLAYER SAYS: {question}"})
         log.info("Frage erkannt: „%s“ – frage die KI …", question)
         t0 = time.time()
@@ -1091,6 +1111,7 @@ class Coach:
         finally:
             f.cancel()
         if not reply:
+            self.last_llm_fail = time.time()
             log.warning("Keine Antwort von der KI nach %.1fs (läuft Ollama? Modell geladen?)", time.time() - t0)
             self.say(t("thinking_error", lang), priority=2, lang=lang)
             return None
@@ -1754,11 +1775,14 @@ class Coach:
             self._chat_library(text),
             self._watch_context(),
             self._strats_context(self.tracker.state.map, self.tracker.state.mode),
+            health_summary(getattr(self, "health", None) or []),
         ] if x)
         nq = _norm(text)
         extra = ("\n\n" + P.CAPABILITIES.format(name=self.name)) if HELP_RE.search(nq) or CAPS_RE.search(nq) else ""
         if EXPLAIN_RE.search(nq):
             extra += P.EXPLAIN.replace("Spoken style, no lists.", "Here in text chat short headings or a few bullets are fine.")
+        if TROUBLE_RE.search(nq):
+            extra += P.TROUBLESHOOT
         system = self._sys(P.CHAT, extra=extra, context=context)
         msgs = [{"role": m["role"], "content": m["text"]} for m in history if m["role"] in ("user", "assistant") and m["text"]]
         # Rollen müssen abwechseln

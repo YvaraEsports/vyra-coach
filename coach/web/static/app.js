@@ -1159,3 +1159,20 @@ $("#syncSave").onclick = async () => {
 };
 document.querySelector('.tabs button[data-tab="sync"]').addEventListener("click", () => loadSync(true));
 setInterval(() => { if (!$("#tab-sync").classList.contains("hidden")) loadSync(false); }, 2000);
+
+
+// --- Selbst-Check: was gerade nicht funktioniert (ehrlich anzeigen + wie man es behebt) -------------
+async function loadHealth(force = false) {
+  const r = await api("/api/health" + (force ? "?force=1" : ""));
+  const probs = (r && r.problems) || [];
+  $("#healthBox").classList.toggle("hidden", !probs.length);
+  $("#healthList").innerHTML = probs.map((p) => `<li class="${p.severity === "warn" ? "warn" : "err"}"><b>${esc(p.problem)}</b>
+    <div class="hint">So behebst du es: ${esc(p.fix)}</div></li>`).join("");
+  return probs;
+}
+$("#healthRecheck").onclick = async () => {
+  const probs = await act($("#healthRecheck"), loadHealth(true), "Geprüft", "Prüfung fehlgeschlagen");
+  if (Array.isArray(probs) && !probs.length) toast("Alles in Ordnung ✓");
+};
+loadHealth();
+setInterval(loadHealth, 30000);
