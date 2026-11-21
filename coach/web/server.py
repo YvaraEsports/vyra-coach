@@ -94,24 +94,15 @@ async def _no_cache(request, handler):
     return resp
 
 
-def prepare_voice_sample(audio: np.ndarray, rate: int, max_s: float = 30.0) -> np.ndarray:
-    """Stimmprobe säubern: Stille vorn/hinten weg, Lautstärke angleichen, höchstens 30 s."""
+def prepare_voice_sample(audio: np.ndarray, rate: int, max_s: float = 60.0) -> np.ndarray:
+    """Stimmprobe säubern: Brummen weg, lange Pausen kürzen, Lautstärke nach der Sprache angleichen
+    (mehrere Aufnahmen klingen dann wie ein Sprecher), höchstens 60 s."""
+    from ..audio.tts import clean_reference
+
     audio = np.nan_to_num(audio.astype(np.float32))
     if not len(audio):
         return audio
-    win = max(1, rate // 50)  # 20-ms-Fenster
-    n = len(audio) // win
-    if n:
-        rms = np.sqrt(np.mean(audio[: n * win].reshape(n, win) ** 2, axis=1))
-        thr = max(1e-4, float(np.percentile(rms, 95)) * 0.05)  # relativ zur eigenen Lautstärke
-        voiced = np.where(rms > thr)[0]
-        if len(voiced):
-            a, b = max(0, voiced[0] - 10) * win, min(n, voiced[-1] + 10) * win
-            audio = audio[a:b]
-    peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
-    if peak > 1e-4:
-        audio = audio / peak * 0.9
-    return audio[: int(max_s * rate)]
+    return clean_reference(audio, rate, max_s=max_s)
 
 
 def speech_seconds(audio: np.ndarray, rate: int) -> float:
@@ -1140,7 +1131,7 @@ class WebUI:
                 piece = prepare_voice_sample(np.frombuffer(pcm, dtype=np.float32), 24000)
                 if len(piece):
                     pieces += [piece, np.zeros(int(0.3 * 24000), np.float32)]
-            audio = np.concatenate(pieces)[: 30 * 24000] if pieces else np.zeros(0, np.float32)
+            audio = np.concatenate(pieces)[: 60 * 24000] if pieces else np.zeros(0, np.float32)  # bis 60 s: mehr Probe = natürlicher
             if speech_seconds(audio, 24000) < 4:
                 raise ValueError("In der Aufnahme ist kaum Sprache zu hören (stumm oder falsches Mikrofon?)")
             with wave.open(str(out), "wb") as wf:

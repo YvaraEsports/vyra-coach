@@ -266,9 +266,9 @@ class Caster:
         else:
             if v:
                 opts = {"xtts_voice": v, "xtts_voice_en": v}
-            base = float(self.cfg.get_path("tts.xtts_speed", 1.05) or 1.05)
-            opts.update({"xtts_speed": min(1.15, base + [0, 0.02, 0.05, 0.08][hype]),
-                         "xtts_temperature": [0.65, 0.72, 0.8, 0.85][hype]})
+            base = float(self.cfg.get_path("tts.xtts_speed", 1.0) or 1.0)
+            opts.update({"xtts_speed": min(1.1, base + [0, 0.02, 0.05, 0.08][hype]),
+                         "xtts_temperature": [0.72, 0.76, 0.8, 0.85][hype]})
             if self.tts.engine == "supertonic":
                 opts["piper_speed"] = [1.0, 1.05, 1.12, 1.2][hype]
         return opts

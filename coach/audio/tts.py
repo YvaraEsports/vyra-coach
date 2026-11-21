@@ -223,9 +223,113 @@ def xtts_ready() -> bool:
     return xtts_status()["ready"]
 
 
-def xtts_text(text: str) -> str:
+# Abkürzungen ausschreiben: sonst buchstabiert die Stimme sie oder stolpert („z. B.“ -> „Zett Be“)
+_SPOKEN = [  # (Muster, ausgesprochen, Groß/klein egal)
+    (r"\bz\.\s?B\.", "zum Beispiel", True), (r"\bbzw\.", "beziehungsweise", True), (r"\bca\.", "circa", True),
+    (r"\busw\.", "und so weiter", True), (r"\bd\.\s?h\.", "das heißt", True), (r"\bu\.\s?a\.", "unter anderem", True),
+    (r"\bggf\.", "gegebenenfalls", True), (r"\bevtl\.", "eventuell", True), (r"\bthx\b", "thanks", True),
+    (r"\bpl[sz]\b", "please", True), (r"\bS&D\b|\bSnD\b", "Search and Destroy", False), (r"\bHP\b", "Hardpoint", False),
+    (r"\bOBJ\b", "Objective", False),
+]
+
+
+def speakable(text: str, lang: str = "de") -> str:
+    """Text so umschreiben, wie ein Mensch ihn sagt: Abkürzungen aus, „2v1“ -> „2 gegen 1“, „%“ -> „Prozent“."""
+    t = text or ""
+    for pat, said, ign in _SPOKEN:
+        t = re.sub(pat, said, t, flags=re.I if ign else 0)
+    vs = "gegen" if lang == "de" else "v"
+    t = re.sub(r"\b(\d)\s?(?:v|vs\.?|on)\s?(\d)\b", rf"\1 {vs} \2", t, flags=re.I)
+    t = re.sub(r"\bvs\.?(?=\s)", "gegen" if lang == "de" else "versus", t, flags=re.I)
+    t = re.sub(r"\s*%", " Prozent" if lang == "de" else " percent", t)
+    t = re.sub(r"\s*&\s*", " und " if lang == "de" else " and ", t)
+    return t
+
+
+def _highpass(audio, rate: int, cutoff: float = 70.0):
+    """Brummen/Rumpeln unter ~70 Hz entfernen (macht die Stimme klarer, ändert den Klang nicht)."""
+    import numpy as np
+
+    if len(audio) < 64:
+        return audio
+    spec = np.fft.rfft(audio)
+    f = np.fft.rfftfreq(len(audio), 1.0 / rate)
+    spec *= np.clip((f - cutoff * 0.5) / (cutoff * 0.5), 0.0, 1.0)  # weicher Übergang statt harter Kante
+    return np.fft.irfft(spec, len(audio)).astype(np.float32)
+
+
+def _frame_rms(audio, win: int):
+    import numpy as np
+
+    n = len(audio) // win
+    return np.sqrt(np.mean(audio[: n * win].reshape(n, win) ** 2, axis=1)) if n else np.zeros(0, np.float32)
+
+
+def clean_reference(audio, rate: int, max_s: float = 60.0, max_pause: float = 0.35):
+    """Stimmprobe so aufbereiten, dass XTTS die Stimme natürlich nachbildet:
+    Brummen weg, lange Pausen kürzen (sonst lernt XTTS „abgehacktes“ Sprechen), Lautstärke nach der Sprache
+    angleichen statt nach der lautesten Spitze (mehrere Aufnahmen klingen dann wie ein Sprecher), ohne Übersteuern."""
+    import numpy as np
+
+    a = np.nan_to_num(np.asarray(audio, dtype=np.float32).squeeze())
+    if len(a) < rate // 2:
+        return a
+    a = _highpass(a - float(np.mean(a)), rate)
+    win = max(1, rate // 50)  # 20 ms
+    rms = _frame_rms(a, win)
+    if not len(rms) or float(rms.max()) < 1e-4:
+        return a
+    voiced = rms > max(1e-4, float(np.percentile(rms, 95)) * 0.06)
+    keep, run = [], 0
+    for i, v in enumerate(voiced):  # Stille über max_pause wird auf max_pause gekürzt
+        run = 0 if v else run + 1
+        if run * win <= max_pause * rate:
+            keep.append(i)
+    if keep:
+        idx = np.asarray(keep)
+        first, last = int(np.argmax(voiced)), len(voiced) - 1 - int(np.argmax(voiced[::-1]))
+        idx = idx[(idx >= max(0, first - 5)) & (idx <= last + 5)]
+        a = a[(idx[:, None] * win + np.arange(win)[None, :]).ravel()]
+    speech = _frame_rms(a, win)
+    loud = speech[speech > max(1e-4, float(np.percentile(speech, 95)) * 0.1)]
+    level = float(np.sqrt(np.mean(loud ** 2))) if len(loud) else float(np.sqrt(np.mean(a ** 2)))
+    if level > 1e-5:
+        a = a * (0.1 / level)  # Sprache auf ca. -20 dBFS
+    peak = float(np.max(np.abs(a))) if len(a) else 0.0
+    if peak > 0.95:
+        a = a * (0.95 / peak)
+    fade = min(len(a), int(0.01 * rate))
+    if fade > 1:
+        a[:fade] *= np.linspace(0.0, 1.0, fade, dtype=np.float32)
+        a[-fade:] *= np.linspace(1.0, 0.0, fade, dtype=np.float32)
+    return a[: int(max_s * rate)].astype(np.float32)
+
+
+def polish(wav, rate: int, target: float = 0.12):
+    """Fertigen Satz angleichen: alle Sätze gleich laut (nicht mal leise, mal laut), kein Brummen, kein Knacken am Anfang."""
+    import numpy as np
+
+    a = np.nan_to_num(np.asarray(wav, dtype=np.float32).squeeze())
+    if len(a) < rate // 10:
+        return a
+    a = _highpass(a - float(np.mean(a)), rate, 60.0)
+    rms = _frame_rms(a, max(1, rate // 50))
+    loud = rms[rms > max(1e-4, float(rms.max()) * 0.1)] if len(rms) else rms
+    level = float(np.sqrt(np.mean(loud ** 2))) if len(loud) else 0.0
+    if level > 1e-4:
+        a = a * min(4.0, target / level)  # leise Sätze höchstens 4x anheben (kein Rauschen hochziehen)
+    peak = float(np.max(np.abs(a)))
+    if peak > 0.97:
+        a = a * (0.97 / peak)
+    fade = min(len(a), int(0.008 * rate))
+    if fade > 1:
+        a[:fade] *= np.linspace(0.0, 1.0, fade, dtype=np.float32)
+    return a
+
+
+def xtts_text(text: str, lang: str = "de") -> str:
     """Text so aufbereiten, dass XTTS sauber endet: ohne Satzzeichen am Ende „brabbelt“ es oft weiter (komische Geräusche)."""
-    t = re.sub(r"[\u2600-\u27bf\U0001f000-\U0001faff]", "", text or "")  # Emojis
+    t = re.sub(r"[\u2600-\u27bf\U0001f000-\U0001faff]", "", speakable(text or "", lang))  # Emojis
     t = re.sub(r"\.{2,}|…", ",", t)
     t = re.sub(r"[*_#~`<>\[\]{}|]", " ", t)
     t = re.sub(r"\s+", " ", t).strip(" ,;:-")
@@ -309,13 +413,14 @@ class TTS:
         return self.cfg.get_path("tts.engine", "piper")
 
     def xtts_speed(self, opts: dict | None = None) -> float:
-        """XTTS-Tempo. Wichtig: XTTS klingt ab ~1.2 blechern/robotisch (die Sprachmerkmale werden gestaucht).
-        Deshalb eigener Wert (tts.xtts_speed, Standard 1.05) und hart begrenzt – das Piper-Tempo (oft 1.5) gilt hier nicht."""
+        """XTTS-Tempo. Wichtig: jedes Tempo ungleich 1.0 staucht/dehnt die Sprachmerkmale – ab ~1.1 klingt XTTS
+        blechern/robotisch. Deshalb eigener Wert (tts.xtts_speed, Standard 1.0 = natürlich) und hart begrenzt –
+        das Piper-Tempo (oft 1.5) gilt hier nicht."""
         try:
-            v = float(self.opt("xtts_speed", 1.05, opts))
+            v = float(self.opt("xtts_speed", 1.0, opts))
         except (TypeError, ValueError):
-            v = 1.05
-        return min(1.15, max(0.85, v))
+            v = 1.0
+        return min(1.1, max(0.9, v))
 
     def speed(self, opts: dict | None = None) -> float:
         try:
@@ -331,7 +436,7 @@ class TTS:
             wav = CUSTOM_DIR / f"{slug_voice(str(voice)[7:])}.wav"
             voice = f"{voice}@{int(wav.stat().st_mtime) if wav.exists() else 0}"
         same = self.opt("same_voice", False, opts)
-        key = f"{eng}|{lang}|mix5|{self.cfg.get_path('tts.rate')}|{voice}|{same}|{self.xtts_speed(opts) if eng == "xtts" else self.speed(opts)}|{text}"
+        key = f"{eng}|{lang}|mix6|{self.cfg.get_path('tts.rate')}|{voice}|{same}|{self.xtts_speed(opts) if eng == "xtts" else self.speed(opts)}|{text}"
         if opts and opts.get("xtts_temperature") not in (None, "") and eng == "xtts":  # Caster-Emotion
             key += f"|t{opts['xtts_temperature']}"
         return CACHE / f"{hashlib.sha1(key.encode()).hexdigest()[:16]}.{ext}"
@@ -436,13 +541,15 @@ class TTS:
             wav = CUSTOM_DIR / f"{slug_voice(voice[7:])}.wav"
             if not wav.exists():
                 raise FileNotFoundError(f"Eigene Stimme fehlt: {wav.name}")
-            # Standard nutzt nur die ersten 6 s der Probe -> klingt kaum nach der Person. Ganze Probe (bis 30 s)
-            # in 4-s-Stücken mitteln: deutlich ähnlicher und stabiler.
+            # Standard nutzt nur die ersten 6 s der Probe -> klingt kaum nach der Person. Ganze, gesäuberte Probe
+            # (bis 60 s, z. B. zwei zusammengelegte Aufnahmen) in 6-s-Stücken mitteln: ähnlicher, stabiler und mit
+            # natürlicherem Sprechrhythmus als kurze Stücke.
+            ref = self._clean_ref_file(wav)
             try:
-                lat = model.get_conditioning_latents(audio_path=[str(wav)], gpt_cond_len=30, gpt_cond_chunk_len=4,
-                                                     max_ref_length=30)
+                lat = model.get_conditioning_latents(audio_path=[str(ref)], gpt_cond_len=60, gpt_cond_chunk_len=6,
+                                                     max_ref_length=60)
             except TypeError:  # ältere/fremde Modelle ohne diese Parameter
-                lat = model.get_conditioning_latents(audio_path=[str(wav)])
+                lat = model.get_conditioning_latents(audio_path=[str(ref)])
         else:
             speakers = model.speaker_manager.speakers
             name = voice if voice in speakers else next(iter(speakers))
@@ -451,14 +558,41 @@ class TTS:
         self._latents[voice] = (lat[0], lat[1])
         return self._latents[voice]
 
+    @staticmethod
+    def _clean_ref_file(wav: Path) -> Path:
+        """Gesäuberte Kopie der Stimmprobe (clean_reference) im Cache – das Original bleibt unverändert.
+        Geht etwas schief (kaputte Datei), wird einfach das Original genommen."""
+        try:
+            import numpy as np
+
+            with wave.open(str(wav)) as wf:
+                rate, ch = wf.getframerate(), wf.getnchannels()
+                a = np.frombuffer(wf.readframes(wf.getnframes()), "<i2").astype(np.float32) / 32768
+            if ch > 1:
+                a = a.reshape(-1, ch).mean(axis=1)
+            out = CACHE / f"ref_{slug_voice(wav.stem)}_{int(wav.stat().st_mtime)}.wav"
+            if not out.exists():
+                pcm = (np.clip(clean_reference(a, rate), -1, 1) * 32767).astype("<i2")
+                with wave.open(str(out), "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(rate)
+                    wf.writeframes(pcm.tobytes())
+            return out
+        except Exception as e:
+            log.debug("Stimmprobe %s nicht gesäubert: %s", wav.name, e)
+            return wav
+
     def xtts_sampling(self, opts: dict | None = None) -> dict:
-        """Etwas ruhigeres Sampling als Coqui-Standard (0.75): bleibt näher an der geklonten Stimme."""
+        """Sampling nahe am Coqui-Standard (0.75 / 0.85): zu niedrig (früher 0.65) klingt monoton und roboterhaft,
+        zu hoch driftet die Stimme weg. 0.72 hält die geklonte Stimme und bringt trotzdem Betonung rein."""
         def num(key, default):
             try:
                 return float(self.opt(key, default, opts))
             except (TypeError, ValueError):
                 return default
-        return {"temperature": num("xtts_temperature", 0.65), "top_p": num("xtts_top_p", 0.8),
+        return {"temperature": num("xtts_temperature", 0.72), "top_p": num("xtts_top_p", 0.85),
+                "top_k": int(num("xtts_top_k", 50)), "length_penalty": 1.0,
                 "repetition_penalty": num("xtts_repetition_penalty", 10.0)}
 
     def xtts_voice(self, lang: str, opts: dict | None = None) -> str:
@@ -484,13 +618,15 @@ class TTS:
             voice = self.xtts_voice(lang, opts)
             gpt, spk = self._xtts_latents(model, voice)
             log.debug("XTTS spricht %s mit Stimme %s", lang, voice)
-            res = model.inference(xtts_text(text), lang if lang in ("de", "en") else "de", gpt, spk,
+            lng = lang if lang in ("de", "en") else "de"
+            res = model.inference(xtts_text(text, lng), lng, gpt, spk,
                                   speed=self.xtts_speed(opts), enable_text_splitting=False,
                                   **self.xtts_sampling(opts))
         wav = res["wav"]
         wav = wav.detach().cpu().numpy() if hasattr(wav, "detach") else np.asarray(wav)
         wav = trim_tail(np.asarray(wav, dtype=np.float32).squeeze(), XTTS_RATE)
-        wav = cap_length(wav, XTTS_RATE, xtts_text(text), self.xtts_speed(opts))
+        wav = cap_length(wav, XTTS_RATE, xtts_text(text, lang), self.xtts_speed(opts))
+        wav = polish(wav, XTTS_RATE)
         pcm = (np.clip(wav, -1, 1) * 32767).astype("<i2")
         tmp = out.with_suffix(".tmp")
         with wave.open(str(tmp), "wb") as wf:
@@ -538,9 +674,15 @@ class TTS:
         with self._xtts_lock:
             st = self._supertonic_load()
             style = st.get_voice_style(self.supertonic_voice(opts))
-            wav, _dur = st.synthesize(xtts_text(text), voice_style=style, lang=lang if lang in ("de", "en") else "de",
-                                      speed=min(1.3, max(0.8, self.speed(opts))))
-        wav = np.asarray(wav, dtype=np.float32).squeeze()
+            lng = lang if lang in ("de", "en") else "de"
+            try:  # mehr Rechenschritte = klarer und weniger metallisch (bei Supertonic trotzdem sehr schnell)
+                steps = int(min(30, max(5, float(self.opt("supertonic_steps", 12, opts)))))
+            except (TypeError, ValueError):
+                steps = 12
+            # über ~1.15 klingt auch Supertonic gehetzt und künstlich
+            wav, _dur = st.synthesize(xtts_text(text, lng), voice_style=style, lang=lng,
+                                      speed=min(1.15, max(0.85, self.speed(opts))), total_steps=steps)
+        wav = polish(np.asarray(wav, dtype=np.float32).squeeze(), int(st.sample_rate))
         pcm = (np.clip(wav, -1, 1) * 32767).astype("<i2")
         tmp = out.with_suffix(".tmp")
         with wave.open(str(tmp), "wb") as wf:
@@ -573,8 +715,24 @@ class TTS:
                 spoken = mark_english(text, list(self.cfg.get_path("tts.english_words", []) or []) + self.extra_english)
             except Exception as e:
                 log.debug("Englische Aussprache nicht möglich: %s", e)
-        with wave.open(str(out), "wb") as wf:
+        tmp = out.with_suffix(".tmp")
+        with wave.open(str(tmp), "wb") as wf:
             voice.synthesize_wav(spoken, wf, syn_config=syn)
+        try:  # gleiche Lautstärke für alle Sätze, kein Brummen
+            import numpy as np
+
+            with wave.open(str(tmp)) as wf:
+                rate = wf.getframerate()
+                a = np.frombuffer(wf.readframes(wf.getnframes()), "<i2").astype(np.float32) / 32768
+            pcm = (np.clip(polish(a, rate), -1, 1) * 32767).astype("<i2")
+            with wave.open(str(tmp), "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(rate)
+                wf.writeframes(pcm.tobytes())
+        except Exception as e:
+            log.debug("Piper-Nachbearbeitung übersprungen: %s", e)
+        tmp.replace(out)
         return out
 
     # ----------------------------------------------------------------- edge

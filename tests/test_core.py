@@ -1997,9 +1997,9 @@ def test_xtts_speed_capped_text_cleaned_and_tail_trimmed():
     import numpy as np
     from coach.audio import tts as T
     t = T.TTS(_cfg(tts={"engine": "xtts", "piper_speed": 1.5}))
-    assert t.xtts_speed() == 1.05  # Piper-Tempo 1.5 macht XTTS blechern -> eigener Wert
+    assert t.xtts_speed() == 1.0  # Piper-Tempo 1.5 macht XTTS blechern -> eigener Wert, 1.0 = natürlich
     t2 = T.TTS(_cfg(tts={"engine": "xtts", "xtts_speed": 1.6}))
-    assert t2.xtts_speed() == 1.15
+    assert t2.xtts_speed() == 1.1
     assert T.xtts_text("Okay bro 😂") == "Okay bro." and T.xtts_text("Warte... was?") == "Warte, was?"
     rate = 24000
     speech = 0.5 * np.sin(np.linspace(0, 3000, rate * 2)).astype(np.float32)
