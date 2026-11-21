@@ -685,7 +685,7 @@ class WebUI:
         try:
             info = await asyncio.to_thread(updater.check, self.cfg)
         except Exception as e:
-            info = {"available": False, "message": f"Prüfung fehlgeschlagen: {e}"}
+            info = {"available": False, "error": True, "message": f"Prüfung fehlgeschlagen: {e}"}
         info["installed"] = updater.installed()
         return web.json_response(info)
 

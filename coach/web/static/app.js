@@ -504,18 +504,59 @@ $("#cvSave").onclick = async () => {
   cvBlob = null; $("#cvFile").value = "";
 };
 
-async function checkUpdate() {
-  const r = await api("/api/update");
-  const cur = (r.installed && r.installed.sha) ? r.installed.sha.slice(0, 7) : "unbekannt";
-  $("#updInfo").textContent = r.available ? `Neue Version verfügbar: ${r.message || ""} (installiert: ${cur})` : `Aktuell (${cur}). ${r.available === false && r.message && !r.latest ? r.message : ""}`;
-  $("#updApply").classList.toggle("hidden", !r.available);
+// Update-Suche mit sichtbarer Rückmeldung: Spinner → „Neue Version“ / „Neueste Version“ / Fehler
+function setUpdState(state, title, info) {
+  const box = $("#updStatus");
+  box.dataset.state = state;
+  $("#updTitle").textContent = title;
+  $("#updInfo").textContent = info || "";
+  box.classList.remove("upd-anim"); void box.offsetWidth; box.classList.add("upd-anim");
 }
-$("#updCheck").onclick = checkUpdate;
+let updBusy = false;
+async function checkUpdate(manual = false) {
+  if (updBusy) return;
+  updBusy = true;
+  const btn = $("#updCheck");
+  btn.disabled = true; btn.textContent = "Suche läuft …";
+  $("#updApply").classList.add("hidden");
+  setUpdState("checking", "Suche nach Updates …", "Frage GitHub nach der neuesten Version.");
+  // Spinner kurz stehen lassen, damit man sieht, dass wirklich gesucht wurde
+  const [r] = await Promise.all([api("/api/update"), new Promise((res) => setTimeout(res, 900))]);
+  btn.disabled = false; btn.textContent = "Nach Updates suchen";
+  updBusy = false;
+  const short = (sha) => (sha ? String(sha).slice(0, 7) : "unbekannt");
+  const cur = short(r.installed && r.installed.sha);
+  const time = new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  if (r.error || (!r.available && !r.latest)) {
+    const why = r.error === true ? r.message : (r.error || r.message || "Unbekannter Fehler");
+    setUpdState("error", "Update-Suche fehlgeschlagen", `${why} · Installiert: ${cur}`);
+    if (manual) toast("Update-Suche fehlgeschlagen", false);
+  } else if (r.available) {
+    setUpdState("new", `Update gefunden: ${short(r.latest)}`,
+      `${r.message ? "„" + r.message + "“ · " : ""}Installiert: ${cur} · geprüft ${time}`);
+    $("#updApply").classList.remove("hidden");
+    if (manual) toast("Neues Update gefunden!");
+  } else {
+    setUpdState("ok", "Du hast die neueste Version", `Version ${cur} · geprüft ${time}`);
+    if (manual) toast("Du hast die neueste Version");
+  }
+}
+$("#updCheck").onclick = () => checkUpdate(true);
 $("#updApply").onclick = async () => {
-  $("#updInfo").textContent = "Update wird installiert …";
+  const btn = $("#updApply");
+  btn.disabled = true;
+  setUpdState("checking", "Update wird installiert …", "Bitte nicht schließen – Yvara AI startet danach neu.");
   const r = await api("/api/update", { method: "POST", body: {} });
-  $("#updInfo").textContent = r.error ? "⚠️ " + r.error : "Installiert – Yvara AI startet neu. Seite in ein paar Sekunden neu laden.";
-  if (!r.error) setTimeout(() => location.reload(), 15000);
+  btn.disabled = false;
+  if (r.error) {
+    setUpdState("error", "Update fehlgeschlagen", String(r.error));
+    toast("Update fehlgeschlagen", false);
+  } else {
+    btn.classList.add("hidden");
+    setUpdState("ok", "Update installiert", "Yvara AI startet neu – die Seite lädt in ein paar Sekunden neu.");
+    toast("Update installiert – Neustart …");
+    setTimeout(() => location.reload(), 15000);
+  }
 };
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
@@ -523,7 +564,7 @@ document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   if (b.dataset.tab === "memory") loadMemories();
   if (b.dataset.tab === "study") loadLibrary();
   if (b.dataset.tab === "tactic") loadTactic();
-  if (b.dataset.tab === "settings") checkUpdate();
+  if (b.dataset.tab === "settings") checkUpdate(false);
   if (b.dataset.tab === "team") loadCallouts();
   if (b.dataset.tab === "console") loadLogs();
   if (b.dataset.tab === "home") loadHomeVoices();
