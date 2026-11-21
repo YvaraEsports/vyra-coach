@@ -341,7 +341,10 @@
       <label class="toggle hidden" id="sWebWrap"><input type="checkbox" id="sWeb"> Online-Recherche standardmäßig an</label>
       <button id="saveSettings">Speichern</button>
       <label class="lbl">Updates</label>
-      <div id="updInfo" class="hint">–</div>
+      <div id="updStatus" class="upd-status" data-state="idle" aria-live="polite">
+        <span class="upd-ic" aria-hidden="true"></span>
+        <div class="upd-body"><b id="updTitle">Noch nicht geprüft</b><div id="updInfo" class="hint">Drück „Nach Updates suchen“.</div></div>
+      </div>
       <div class="row"><button class="ghost small" id="updCheck">Nach Updates suchen</button><button class="small hidden" id="updApply">Jetzt updaten</button></div>
     </div>
 

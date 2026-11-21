@@ -235,3 +235,29 @@ label.mini { display: flex; flex-direction: column; font-size: 11px; color: var(
 .castgrid .toggle { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 4px; }
 .castprev::before { content: "Noch kein Bild – Bildquelle einstellen und „Vorschau aktualisieren“"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; text-align: center; padding: 20px; }
 .castprev img { position: relative; }
+
+/* Update-Suche: Statuskarte mit Animation */
+.upd-status { display: flex; gap: 12px; align-items: center; margin: 6px 0 8px; padding: 10px 12px; border-radius: 10px;
+  background: var(--bg3); border: 1px solid var(--line); transition: border-color .3s, background .3s; }
+.upd-status .upd-body { min-width: 0; } .upd-status .upd-body .hint { margin: 2px 0 0; overflow-wrap: anywhere; }
+.upd-ic { width: 28px; height: 28px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 15px; font-weight: 700;
+  color: #fff; background: var(--bg2, #222); border: 2px solid var(--line); }
+.upd-status[data-state="idle"] .upd-ic::before { content: "↻"; color: var(--muted); }
+.upd-status[data-state="checking"] .upd-ic { border-color: var(--line); border-top-color: var(--accent2); background: transparent; animation: updSpin .8s linear infinite; }
+.upd-status[data-state="ok"] { border-color: var(--ok); }
+.upd-status[data-state="ok"] .upd-ic { background: var(--ok); border-color: var(--ok); }
+.upd-status[data-state="ok"] .upd-ic::before { content: "✓"; }
+.upd-status[data-state="new"] { border-color: var(--accent2); }
+.upd-status[data-state="new"] .upd-ic { background: linear-gradient(135deg, var(--accent), var(--accent2)); border-color: transparent; animation: updGlow 1.6s ease-in-out infinite; }
+.upd-status[data-state="new"] .upd-ic::before { content: "↓"; }
+.upd-status[data-state="error"] { border-color: var(--bad); }
+.upd-status[data-state="error"] .upd-ic { background: var(--bad); border-color: var(--bad); }
+.upd-status[data-state="error"] .upd-ic::before { content: "!"; }
+.upd-status.upd-anim[data-state="ok"], .upd-status.upd-anim[data-state="new"] { animation: updIn .35s ease-out; }
+.upd-status.upd-anim[data-state="ok"] .upd-ic::before, .upd-status.upd-anim[data-state="new"] .upd-ic::before,
+.upd-status.upd-anim[data-state="error"] .upd-ic::before { display: inline-block; animation: pop .4s ease-out; }
+.upd-status.upd-anim[data-state="ok"] .upd-ic { animation: flashOk .9s ease-out; }
+.upd-status.upd-anim[data-state="error"] { animation: flashErr .6s ease-out; }
+@keyframes updSpin { to { transform: rotate(360deg); } }
+@keyframes updGlow { 50% { box-shadow: 0 0 0 7px #36c2ff33; } }
+@keyframes updIn { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: none; } }
