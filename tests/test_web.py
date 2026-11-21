@@ -243,3 +243,25 @@ def test_parakeet_language_guess():
     assert guess_language("How are you doing today bro?") == "en"
     assert guess_language("Hardpoint P2 rotate") in ("de", "en")
     assert guess_language("Schön") == "de"
+
+
+def test_api_errors_come_back_as_json_reason(tmp_path, monkeypatch):
+    """Die App zeigt bei jeder fehlgeschlagenen Aktion den Grund – dafür muss die API ihn als JSON liefern."""
+    coach = _coach(tmp_path, monkeypatch)
+    ui = WebUI(coach.cfg, coach, FakeTTS())
+
+    async def boom(request):
+        raise RuntimeError("Datenbank gesperrt")
+    ui.app.router.add_get("/api/_boom", boom)
+
+    async def go():
+        async with TestClient(TestServer(ui.app)) as c:
+            r = await c.post("/api/mode", json={"mode": "quatsch"})
+            assert r.status == 400
+            assert (await r.json()) == {"ok": False, "error": "mode: talk | live | observe | teach | cast"}
+            r = await c.get("/api/_boom")
+            assert r.status == 500
+            assert (await r.json())["error"] == "RuntimeError: Datenbank gesperrt"
+            r = await c.get("/")  # normale Seiten bleiben unverändert
+            assert r.status == 200 and "Yvara AI" in await r.text()
+    asyncio.run(go())
