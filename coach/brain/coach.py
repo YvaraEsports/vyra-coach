@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import time
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -17,6 +18,10 @@ from .callouts import CalloutIndex, annotate
 from .llm import LLM, image_block
 
 from ..audio.output import clean_for_speech  # noqa: E402
+
+# Sätze, die während eines App-Calls gesagt werden, landen nur in DIESEM Call – nicht die Antworten, die
+# parallel aufs Discord-Mikro/Loopback reagieren (die sollen nicht doppelt in der App auftauchen).
+_CALL_CAPTURE: ContextVar[list | None] = ContextVar("call_capture", default=None)
 
 log = logging.getLogger(__name__)
 
@@ -447,7 +452,7 @@ class Coach:
         task.add_done_callback(self._bg.discard)
 
     def say(self, text: str, priority: int = 1, max_age: float = 8.0, lang: str | None = None) -> None:
-        cap = getattr(self, "_say_capture", None)
+        cap = _CALL_CAPTURE.get()
         if cap is not None:  # Sprach-Call in der App: Antwort geht an die App statt in Discord/Lautsprecher
             cap.append((text, lang or self.lang))
             return
@@ -458,6 +463,7 @@ class Coach:
         lock = self.__dict__.setdefault("_call_lock", asyncio.Lock())
         async with lock:
             self._say_capture = []
+            token = _CALL_CAPTURE.set(self._say_capture)
             try:
                 self.last_lang = lang
                 n = _norm(text)
@@ -467,6 +473,7 @@ class Coach:
                 log.info("App-Call: „%s“ -> %d Satz/Sätze", n[:80], len(out))
                 return out
             finally:
+                _CALL_CAPTURE.reset(token)
                 self._say_capture = None
 
     def roster(self) -> list[dict]:

@@ -901,17 +901,32 @@ async function callSend(blob) {
   try {
     const fd = new FormData(); fd.append("audio", blob, "call.wav");
     const r = await fetch("/api/call", { method: "POST", body: fd }).then((x) => x.json());
+    if (r.error) toast("Call: " + r.error, false);
     if (r.text) callLog("me", "Du", r.text);
-    for (const rep of r.replies || []) {
+    const reps = r.replies || [];
+    // Erster Satz kommt schon vertont; die nächsten werden geholt, während der vorige läuft.
+    const speak = (rep) => rep.audio ? Promise.resolve(rep.audio)
+      : api("/api/speak", { method: "POST", body: { text: rep.text, lang: rep.lang } }).then((x) => x && x.audio).catch(() => null);
+    let next = reps.length ? speak(reps[0]) : null;
+    for (let i = 0; i < reps.length; i++) {
       if (!call.on) break;
-      callLog("vy", state.name || "Yvara AI", rep.text);
-      if (rep.audio) { call.speaking = true; callSet("speak", `${state.name || "Yvara AI"} spricht …`); await playWait(rep.audio); call.speaking = false; }
+      const url = await next;
+      next = i + 1 < reps.length ? speak(reps[i + 1]) : null;
+      callLog("vy", state.name || "Yvara AI", reps[i].text);
+      if (url) {
+        call.speaking = true; callSet("speak", `${state.name || "Yvara AI"} spricht …`);
+        if (!(await playWait(url))) toast("Ton konnte nicht abgespielt werden – Lautstärke/Ausgabegerät prüfen", false);
+        call.speaking = false;
+      } else toast("Kein Ton für diesen Satz (Stimme fehlgeschlagen) – siehe Logs", false);
     }
   } catch (e) { toast("Call: " + e, false); }
   call.busy = false; call.ring = []; if (call.on) callSet("listen", "Ich höre zu …");
 }
 function playWait(url) {
-  return new Promise((res) => { const a = new Audio(url); a.onended = res; a.onerror = res; a.play().catch(res); call.audio = a; });
+  return new Promise((res) => {
+    const a = new Audio(url); a.onended = () => res(true); a.onerror = () => res(false);
+    a.play().catch(() => res(false)); call.audio = a;
+  });
 }
 async function callStart() {
   try {
