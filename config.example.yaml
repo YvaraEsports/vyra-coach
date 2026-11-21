@@ -95,6 +95,9 @@ tts:
   engine: piper                        # xtts (EINE Stimme für de+en, Grafikkarte, eigene Stimme – vorher stimme_einrichten.bat) | piper | edge | system
   xtts_voice: Damien Black             # eingebauter Sprecher oder "custom:<name>" (eigene Aufnahme in data/voices/custom)
   xtts_voice_en: ""                    # leer = gleiche Stimme auch für Englisch, sonst anderer Sprecher oder "custom:<name>"
+  xtts_speed: 1.0                      # XTTS-Tempo: 1.0 klingt am natürlichsten, über 1.1 wird es blechern
+  xtts_temperature: 0.72               # Betonung: niedriger = monotoner/robotischer, höher = lebendiger (bis ~0.85)
+  supertonic_steps: 12                 # Supertonic-Qualität: mehr Schritte = klarer (5–30)
   same_voice: false                    # nur Piper: deutsche Stimme auch für Englisch benutzen
   piper_de: de_DE-thorsten-high        # Stimme oder Pfad zu eigener .onnx (eigene trainierte Stimme)
   piper_en: en_US-ryan-high
