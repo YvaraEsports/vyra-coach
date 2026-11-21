@@ -73,6 +73,7 @@ async def run(cfg, use_discord: bool = True, use_vision: bool = True, use_audio:
                 log.warning("HUD-Erkennung nicht verfügbar: %s", e)
 
     stt = None
+    audio_problem = ""
     if use_audio:
         try:
             from .audio.input import AudioInput
@@ -83,6 +84,7 @@ async def run(cfg, use_discord: bool = True, use_vision: bool = True, use_audio:
             audio_in.on_barge_in = lambda: voice.interrupt()
         except Exception as e:
             log.warning("Spracheingabe nicht verfügbar: %s", e)
+            audio_problem = str(e)[:200]
 
     bot = None
     notify = None
@@ -96,6 +98,8 @@ async def run(cfg, use_discord: bool = True, use_vision: bool = True, use_audio:
     if bot:
         bot.coach = coach
         coach.bot = bot
+    if audio_problem:
+        coach.startup_problems["audio"] = audio_problem
 
     from .study.library import Library
     from .study.study import Studier
@@ -176,6 +180,9 @@ async def run(cfg, use_discord: bool = True, use_vision: bool = True, use_audio:
              asyncio.create_task(keep_model_warm()), asyncio.create_task(warm_voice()),
              asyncio.create_task(autostart_learning())]
     tasks.append(asyncio.create_task(gaming.run()))
+    from . import health
+
+    tasks.append(asyncio.create_task(health.watch_loop(coach)))  # Selbst-Check: Probleme ehrlich melden
     tasks += [asyncio.create_task(coach.caster.run()), asyncio.create_task(coach.caster.fast_loop())]
     if cfg.get("coaching_mode") == "cast" or cfg.get_path("caster.autostart", False):
         coach.set_mode("cast", announce=False)

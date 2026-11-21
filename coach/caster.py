@@ -236,6 +236,7 @@ class Caster:
         self._new_viewers: list[str] = []
         self.last_error = ""
         self._tasks: set = set()
+        self.phase = ""  # live / break / post_map – schätzt die KI aus Bild + Ereignissen
 
     def _bg_task(self, coro) -> None:
         try:
@@ -385,7 +386,7 @@ class Caster:
                 "chat": list(self.chat)[-30:], "learn": self.learn_state,
                 "style_lib": {"phrases": len(self.style_lib.get("phrases", [])),
                               "techniques": len(self.style_lib.get("techniques", []))},
-                "error": self.last_error}
+                "phase": self.phase, "error": self.last_error}
 
     # ---------------------------------------------------------------- chat
     def _on_chat(self, m: dict) -> None:
@@ -403,7 +404,12 @@ class Caster:
         if self._chat_total % 10 == 0:
             self._save_json("viewers.json", self.viewers)
 
+    PHASES = ("live", "break", "post_map")
+
     def _chat_context(self) -> str:
+        # Während gespielt wird, wartet der Chat (außer er staut sich) – in Pausen/nach der Map kommt er dran.
+        if self.phase == "live" and self._chat_total - self._chat_seen < 12:
+            return ""
         msgs = list(self.chat)
         n_new = min(len(msgs), self._chat_total - self._chat_seen)
         new = msgs[len(msgs) - n_new:] if n_new > 0 else []
@@ -506,6 +512,7 @@ class Caster:
                 self.events_text.append(f"score swing of {d.get('points')} points")
             elif k == "match_end":
                 self.events_text.append(f"match over {d.get('ours')}-{d.get('enemy')}")
+                self.phase = "post_map"
                 self.moment("round_won" if (d.get("ours") or 0) > (d.get("enemy") or 0) else "round_lost")
 
     # ----------------------------------------------------------------- KI
@@ -538,6 +545,8 @@ class Caster:
             parts.append("RECENT EVENTS: " + "; ".join(self.events_text))
         if self.observations:
             parts.append("WHAT YOU SAW BEFORE: " + " | ".join(list(self.observations)[-4:]))
+        if self.phase:
+            parts.append(f"PHASE BEFORE: {self.phase}")
         recent = [x["text"] for x in list(self.lines)[-8:]]
         if recent:
             parts.append("RECENT LINES (do not repeat): " + " | ".join(recent))
@@ -565,6 +574,10 @@ class Caster:
             self._llm_busy = False
         if not isinstance(res, dict):
             return None
+        phase = str(res.get("phase") or "").strip().lower()
+        if phase in self.PHASES and phase != self.phase:
+            log.info("Caster: Phase %s -> %s", self.phase or "?", phase)
+            self.phase = phase
         obs = str(res.get("observation") or "").strip()
         if obs:
             self.observations.append(obs[:200])

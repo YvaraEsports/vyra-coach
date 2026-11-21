@@ -785,7 +785,8 @@ async function loadWatch(fillSources = false) {
   $("#wToggle").classList.toggle("danger", watchOn);
   $("#wBox").classList.toggle("hidden", !watchOn);
   const last = (w.log || []).slice(-1)[0];
-  $("#wLast").textContent = watchOn ? (last ? "Yvara AI sieht: " + last.text : "Yvara AI schaut hin … die erste Einschätzung kommt in ein paar Sekunden.") : "";
+  $("#wLast").textContent = watchOn ? (!w.seeing ? `🔴 Kein Bild: ${w.why || "es kommt nichts an"}`
+    : "🟢 Bild kommt an. " + (last ? "Yvara AI sieht: " + last.text : "Die erste Einschätzung kommt in ein paar Sekunden.")) : "";
   if (!w.available) $("#wLast").textContent = "Bildschirmaufnahme ist aus.";
 }
 $("#wToggle").onclick = async () => {
@@ -798,6 +799,7 @@ $("#wComment").onchange = () => api("/api/watch", { method: "POST", body: { on: 
 setInterval(() => {
   if (watchOn && !$("#tab-match").classList.contains("hidden")) $("#wImg").src = `/api/watch/preview.jpg?t=${Date.now()}`;
 }, 1000);
+setInterval(() => { if (watchOn && !$("#tab-match").classList.contains("hidden")) loadWatch(); }, 4000);  // Bild-Anzeige aktuell halten
 setInterval(() => { if (!$("#tab-match").classList.contains("hidden")) loadWatch(); }, 5000);
 loadWatch(true);
 
@@ -901,17 +903,32 @@ async function callSend(blob) {
   try {
     const fd = new FormData(); fd.append("audio", blob, "call.wav");
     const r = await fetch("/api/call", { method: "POST", body: fd }).then((x) => x.json());
+    if (r.error) toast("Call: " + r.error, false);
     if (r.text) callLog("me", "Du", r.text);
-    for (const rep of r.replies || []) {
+    const reps = r.replies || [];
+    // Erster Satz kommt schon vertont; die nächsten werden geholt, während der vorige läuft.
+    const speak = (rep) => rep.audio ? Promise.resolve(rep.audio)
+      : api("/api/speak", { method: "POST", body: { text: rep.text, lang: rep.lang } }).then((x) => x && x.audio).catch(() => null);
+    let next = reps.length ? speak(reps[0]) : null;
+    for (let i = 0; i < reps.length; i++) {
       if (!call.on) break;
-      callLog("vy", state.name || "Yvara AI", rep.text);
-      if (rep.audio) { call.speaking = true; callSet("speak", `${state.name || "Yvara AI"} spricht …`); await playWait(rep.audio); call.speaking = false; }
+      const url = await next;
+      next = i + 1 < reps.length ? speak(reps[i + 1]) : null;
+      callLog("vy", state.name || "Yvara AI", reps[i].text);
+      if (url) {
+        call.speaking = true; callSet("speak", `${state.name || "Yvara AI"} spricht …`);
+        if (!(await playWait(url))) toast("Ton konnte nicht abgespielt werden – Lautstärke/Ausgabegerät prüfen", false);
+        call.speaking = false;
+      } else toast("Kein Ton für diesen Satz (Stimme fehlgeschlagen) – siehe Logs", false);
     }
   } catch (e) { toast("Call: " + e, false); }
   call.busy = false; call.ring = []; if (call.on) callSet("listen", "Ich höre zu …");
 }
 function playWait(url) {
-  return new Promise((res) => { const a = new Audio(url); a.onended = res; a.onerror = res; a.play().catch(res); call.audio = a; });
+  return new Promise((res) => {
+    const a = new Audio(url); a.onended = () => res(true); a.onerror = () => res(false);
+    a.play().catch(() => res(false)); call.audio = a;
+  });
 }
 async function callStart() {
   try {
@@ -1142,3 +1159,20 @@ $("#syncSave").onclick = async () => {
 };
 document.querySelector('.tabs button[data-tab="sync"]').addEventListener("click", () => loadSync(true));
 setInterval(() => { if (!$("#tab-sync").classList.contains("hidden")) loadSync(false); }, 2000);
+
+
+// --- Selbst-Check: was gerade nicht funktioniert (ehrlich anzeigen + wie man es behebt) -------------
+async function loadHealth(force = false) {
+  const r = await api("/api/health" + (force ? "?force=1" : ""));
+  const probs = (r && r.problems) || [];
+  $("#healthBox").classList.toggle("hidden", !probs.length);
+  $("#healthList").innerHTML = probs.map((p) => `<li class="${p.severity === "warn" ? "warn" : "err"}"><b>${esc(p.problem)}</b>
+    <div class="hint">So behebst du es: ${esc(p.fix)}</div></li>`).join("");
+  return probs;
+}
+$("#healthRecheck").onclick = async () => {
+  const probs = await act($("#healthRecheck"), loadHealth(true), "Geprüft", "Prüfung fehlgeschlagen");
+  if (Array.isArray(probs) && !probs.length) toast("Alles in Ordnung ✓");
+};
+loadHealth();
+setInterval(loadHealth, 30000);

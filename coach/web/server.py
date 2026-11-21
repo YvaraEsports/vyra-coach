@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 import wave
 from pathlib import Path
 
@@ -163,6 +164,8 @@ class WebUI:
         r.add_post("/api/chat", self.chat)
         r.add_post("/api/voice", self.voice)
         r.add_post("/api/call", self.call)
+        r.add_post("/api/speak", self.speak)
+        r.add_get("/api/health", self.health)
         r.add_get("/api/memories", self.memories)
         r.add_post("/api/memories", self.add_memory)
         r.add_delete("/api/memories/{mid}", self.delete_memory)
@@ -585,10 +588,39 @@ class WebUI:
             except Exception:
                 pass
         said = await self.coach.call_turn(text, lang)
-        replies = []
-        for sent, lg in said:
-            replies.append({"text": sent, "lang": lg, "audio": await self._speak_file(sent, lg)})
+        # Nur den ersten Satz sofort vertonen: sonst wartet die App auf ALLE Sätze und bleibt lange stumm.
+        # Die übrigen holt die App über /api/speak, während der erste schon läuft.
+        replies = [{"text": sent, "lang": lg, "audio": None} for sent, lg in said]
+        if replies:
+            t0 = time.time()
+            replies[0]["audio"] = await self._speak_file(replies[0]["text"], replies[0]["lang"])
+            log.info("App-Call: Antwort zurück (%d Satz/Sätze, erster vertont in %.1fs%s)", len(replies),
+                     time.time() - t0, "" if replies[0]["audio"] else ", OHNE Ton")
+        else:
+            log.info("App-Call: keine Antwort auf „%s“", text[:80])
         return web.json_response({"text": text, "lang": lang, "replies": replies})
+
+    async def health(self, req):
+        """Selbst-Check für die App: was gerade nicht funktioniert und wie man es behebt."""
+        from .. import health
+
+        if req.query.get("force"):
+            self.coach._brain_cache = None
+        probs = await health.check(self.coach)
+        self.coach.health = probs
+        return web.json_response({"problems": probs})
+
+    async def speak(self, req):
+        """Einen Satz vertonen (für den App-Call: weitere Sätze, während der vorige läuft)."""
+        data = await req.json()
+        text = str(data.get("text") or "").strip()
+        if not text:
+            return web.json_response({"audio": None})
+        lang = data.get("lang") if data.get("lang") in ("de", "en") else self.coach.lang
+        audio = await self._speak_file(text, lang)
+        if not audio:
+            log.warning("App-Call: Satz ohne Ton (TTS fehlgeschlagen): %s", text[:80])
+        return web.json_response({"audio": audio})
 
     async def memories(self, _req):
         return web.json_response(self.coach.db.memories())
@@ -873,7 +905,9 @@ class WebUI:
             monitors = max(1, len(c.capture._sct.monitors) - 1) if c.capture else 0
         except Exception:
             pass
+        seeing, why = c.watch_seeing() if hasattr(c, "watch_seeing") else (False, "")
         return web.json_response({**{k: v for k, v in c.watch.items()}, "available": c.capture is not None,
+                                  "seeing": seeing, "why": why,
                                   "windows": windows, "monitors": monitors,
                                   "log": [{"ts": ts, "text": o} for ts, o in c.watch_log[-8:]]})
 

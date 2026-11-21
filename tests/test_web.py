@@ -233,7 +233,35 @@ def test_app_call_turn_returns_spoken_reply(tmp_path, monkeypatch):
             fd = FormData(); fd.add_field("audio", buf.getvalue(), filename="c.wav", content_type="audio/wav")
             r = await (await c.post("/api/call", data=fd)).json()
             assert r["text"] == "Wie geht es dir heute" and r["replies"][0]["text"] == "Mir geht's gut, danke!"
+            assert r["replies"][0]["audio"]  # erster Satz kommt gleich mit Ton
             assert coach._say_capture is None
+            s = await (await c.post("/api/speak", json={"text": "Noch ein Satz.", "lang": "de"})).json()
+            assert s["audio"].startswith("/audio/")
+    asyncio.run(go())
+
+
+def test_app_call_only_captures_its_own_sentences(tmp_path, monkeypatch):
+    """Antwortet der Coach parallel aufs Mikro/Discord, darf das nicht im App-Call landen."""
+    coach = _coach(tmp_path, monkeypatch)
+    spoken = []
+    coach.voice.say = lambda text, lang, **kw: spoken.append(text)
+    started = None
+
+    async def fake_cmd(text, lang):
+        started.set()
+        await asyncio.sleep(0.05)
+        coach.say("Antwort im Call", lang=lang)
+
+    async def go():
+        nonlocal started
+        started = asyncio.Event()
+        coach.on_command = fake_cmd
+        task = asyncio.create_task(coach.call_turn("hallo", "de"))
+        await started.wait()
+        coach.say("Antwort im Discord", lang="de")  # anderer Task, z. B. Mikro-Erkennung
+        out = await task
+        assert out == [("Antwort im Call", "de")]
+        assert spoken == ["Antwort im Discord"]
     asyncio.run(go())
 
 
@@ -243,3 +271,15 @@ def test_parakeet_language_guess():
     assert guess_language("How are you doing today bro?") == "en"
     assert guess_language("Hardpoint P2 rotate") in ("de", "en")
     assert guess_language("Schön") == "de"
+
+
+def test_health_endpoint(tmp_path, monkeypatch):
+    coach = _coach(tmp_path, monkeypatch)
+    coach.discord_error = "Discord-Token ungültig"
+    ui = WebUI(coach.cfg, coach, FakeTTS())
+
+    async def go():
+        async with TestClient(TestServer(ui.app)) as c:
+            r = await (await c.get("/api/health?force=1")).json()
+            assert any(p["key"] == "discord" for p in r["problems"])
+    asyncio.run(go())

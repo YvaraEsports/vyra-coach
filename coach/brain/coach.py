@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import time
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -17,6 +18,11 @@ from .callouts import CalloutIndex, annotate
 from .llm import LLM, image_block
 
 from ..audio.output import clean_for_speech  # noqa: E402
+from ..health import summary_for_llm as health_summary  # noqa: E402
+
+# Sätze, die während eines App-Calls gesagt werden, landen nur in DIESEM Call – nicht die Antworten, die
+# parallel aufs Discord-Mikro/Loopback reagieren (die sollen nicht doppelt in der App auftauchen).
+_CALL_CAPTURE: ContextVar[list | None] = ContextVar("call_capture", default=None)
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +98,10 @@ ASK_PHRASES = ("was machen wir", "was sollen wir", "wie spielen wir", "wo sollen
 HELP_RE = re.compile(r"(wie funktioniert (die app|das programm|der caster|der sync|du)|wie geht das|wo finde ich|wo stell ich|"
                      r"wie stell ich|wie kann ich (dich|die app|den caster|das overlay)|wie benutze ich|was bedeutet der knopf|"
                      r"how do i (use|set up|turn on)|how does (the app|this app|the caster|sync) work|where do i find)")
+TROUBLE_RE = re.compile(r"((funktioniert|geht|klappt|läuft|laeuft)\b.{0,30}?\b(nicht|nie)\b|kaputt|"
+                        r"\bbug\b|hilf mir (das |es )?(zu )?(beheben|reparieren|fixen)|was ist (los|kaputt) mit dir|"
+                        r"warum (hörst|siehst|redest|sprichst|antwortest) du (mich )?nicht|not working|doesn'?t work|broken|"
+                        r"help me fix|what'?s wrong with you|troubleshoot)")
 EXPLAIN_RE = re.compile(r"(erklär|erklaer|check (das|ich|des) nicht|versteh (das|ich) nicht|verstehe (das )?nicht|kapier|"
                         r"wie funktionier|wie laufen die spawns|wie funktionieren die spawns|was ist (ein|eine|der|die|das) |"
                         r"warum (muss|soll|sollte)|wann muss ich|wann soll ich|explain|don't get|dont get|how do (spawns|rotations) work|"
@@ -111,7 +121,18 @@ def looks_like_question(text: str) -> bool:
 _SENT_END = re.compile(r"(.+?[.!?…])(\s+|$)", re.S)
 
 
-def split_first_chunk(buf: str, min_len: int = 18) -> tuple[str, str]:
+def frame_is_blank(frame) -> bool:
+    """Schwarzes/einfarbiges Bild (minimiertes Fenster, Hardware-Beschleunigung, Ladebildschirm ohne Inhalt)."""
+    try:
+        import numpy as np
+
+        small = np.asarray(frame)[::16, ::16]
+        return small.size == 0 or float(small.std()) < 3.0
+    except Exception:
+        return False
+
+
+def split_first_chunk(buf: str, min_len: int = 20) -> tuple[str, str]:
     """Für den Antwortbeginn: schon am ersten Komma vorlesen, damit Yvara AI sofort losredet."""
     m = re.match(r"(.{%d,}?[,;:–])\s+" % min_len, buf, re.S)
     if m and len(m.group(1)) <= 90:
@@ -119,7 +140,7 @@ def split_first_chunk(buf: str, min_len: int = 18) -> tuple[str, str]:
     return "", buf
 
 
-def split_sentences(buf: str, min_len: int = 12) -> tuple[list[str], str]:
+def split_sentences(buf: str, min_len: int = 20) -> tuple[list[str], str]:
     """Fertige Sätze aus einem wachsenden Text holen. Sehr kurze Stücke werden mit dem nächsten Satz verbunden."""
     out, rest, acc = [], buf, ""
     while True:
@@ -195,6 +216,9 @@ class Coach:
         self.library = None   # Taktik-Bibliothek (Lern-Modus), von app.py gesetzt
         self._co_cache = None  # (map, ts, CalloutIndex)
         self.discord_error = ""  # wird gesetzt, wenn der Discord-Bot nicht starten konnte
+        self.health: list[dict] = []  # Selbst-Check (coach/health.py): was gerade nicht funktioniert
+        self.startup_problems: dict[str, str] = {}
+        self.started_at = time.time()
         self.studier = None
         self.autolearn = None
         self.feeds = None     # Mehrere Bildquellen (FeedManager), von app.py gesetzt
@@ -447,7 +471,7 @@ class Coach:
         task.add_done_callback(self._bg.discard)
 
     def say(self, text: str, priority: int = 1, max_age: float = 8.0, lang: str | None = None) -> None:
-        cap = getattr(self, "_say_capture", None)
+        cap = _CALL_CAPTURE.get()
         if cap is not None:  # Sprach-Call in der App: Antwort geht an die App statt in Discord/Lautsprecher
             cap.append((text, lang or self.lang))
             return
@@ -458,6 +482,7 @@ class Coach:
         lock = self.__dict__.setdefault("_call_lock", asyncio.Lock())
         async with lock:
             self._say_capture = []
+            token = _CALL_CAPTURE.set(self._say_capture)
             try:
                 self.last_lang = lang
                 n = _norm(text)
@@ -467,6 +492,7 @@ class Coach:
                 log.info("App-Call: „%s“ -> %d Satz/Sätze", n[:80], len(out))
                 return out
             finally:
+                _CALL_CAPTURE.reset(token)
                 self._say_capture = None
 
     def roster(self) -> list[dict]:
@@ -615,12 +641,42 @@ class Coach:
             return bool(self.watch.get("on"))
         return bool(self.tracker.state.active or self.watch.get("on") or (self.mode == "teach" and self.lesson))
 
+    DIALOGUE_TURNS = 12
+    DIALOGUE_MAX_AGE = 20 * 60
+
+    def note_dialogue(self, who: str, text: str) -> None:
+        """Kurzzeitgedächtnis fürs Gespräch: wer was gesagt hat – auch was Yvara AI selbst geantwortet hat."""
+        text = " ".join((text or "").split())
+        if not text:
+            return
+        buf = self.__dict__.setdefault("_dialogue", [])
+        buf.append((time.time(), who, text[:400]))
+        del buf[:-self.DIALOGUE_TURNS * 2]
+
+    def dialogue_text(self, now: float | None = None) -> str:
+        now = now or time.time()
+        rows = [(who, tx) for ts, who, tx in self.__dict__.get("_dialogue", []) if now - ts <= self.DIALOGUE_MAX_AGE]
+        return "\n".join(f"{'YOU' if who == 'coach' else 'THEM'}: {tx}" for who, tx in rows[-self.DIALOGUE_TURNS * 2:])
+
+    def use_filler(self) -> bool:
+        """„Okay.“/„Mhm.“ als Lückenfüller. Bei XTTS aus (Standard): ein einzelnes Wort klingt dort oft wie eine
+        andere Stimme – das war der „kurz eine fremde Stimme für ein Wort“-Effekt. Mit llm.filler: true wieder an."""
+        val = self.cfg.get_path("llm.filler", "auto")
+        if isinstance(val, bool):
+            return val
+        return str(self.cfg.get_path("tts.engine", "")) != "xtts"
+
     def _smalltalk_context(self, question: str) -> str:
-        mems = self.db.relevant_memories(question, limit=8)
+        mems = self.db.relevant_memories(question, limit=5)
+        talk = self._recent_comms(90)
         parts = ["GAME STATE: no match running, nobody is playing right now. You have not seen them play today."
                  if not self.db_recent_match() else f"LAST MATCH (real data): {self.db_recent_match()}",
-                 "THINGS YOU KNOW ABOUT THEM:\n" + "\n".join(f"- {m}" for m in mems) if mems else "",
-                 f"RECENT TALK:\n{self._recent_comms(90)}"]
+                 "THINGS YOU KNOW ABOUT THEM (only mention if it fits the topic):\n" + "\n".join(f"- {m}" for m in mems)
+                 if mems else "",
+                 f"OTHERS TALKING IN THE CHANNEL:\n{talk}" if talk else "",
+                 self._screen_note() if hasattr(self, "watch") else "",
+                 self._watch_context() if hasattr(self, "watch_log") else "",
+                 f"CONVERSATION SO FAR (oldest first, YOU = what you said):\n{self.dialogue_text() or '- (just started)'}"]
         return "\n\n".join(x for x in parts if x)
 
     def db_recent_match(self) -> str:
@@ -649,6 +705,7 @@ class Coach:
             self.minimap.summary(20) if st.active else "",
             self.tendencies.summary() if st.active else "",
             self._watch_context(),
+            "" if st.active else self._screen_note(),
             self._strats_context(st.map, st.mode),
             f"RUNNING TIMERS: {', '.join(self.timers.active)}" if self.timers.active else "",
             self._map_context(st.mode, st.map) if st.active else "",
@@ -656,6 +713,7 @@ class Coach:
             f"PLAN: {self.plan_text[:1500]}" if self.plan_text else "",
             self._profiles_context(),
             f"RECENT COMMS:\n{self._recent_comms()}",
+            f"YOUR CONVERSATION SO FAR (YOU = what you said):\n{talk}" if (talk := self.dialogue_text()) else "",
         ]
         return "\n\n".join(p for p in parts if p)
 
@@ -771,13 +829,19 @@ class Coach:
             focus = self.game_focus() if hasattr(self, "game_focus") else True
             system = self._sys(P.PROACTIVE if focus else P.SMALLTALK_PROACTIVE,
                                max_words=self.cfg.get_path("llm.max_answer_words", 35))
-            res = await self.llm.ask(system, f"RECENT COMMS:\n{self._recent_comms(60)}\n\nJUST SAID ({source}): {text}\n"
+            talk = self.dialogue_text() if hasattr(self, "dialogue_text") else ""
+            res = await self.llm.ask(system, f"RECENT COMMS:\n{self._recent_comms(60) or '-'}\n\n"
+                                             f"YOUR CONVERSATION SO FAR (YOU = what you said):\n{talk or '-'}\n\n"
+                                             f"JUST SAID ({source}): {text}\n"
                                              f"LANGUAGE: {lang}", schema=P.PROACTIVE_SCHEMA, max_tokens=300)
             reply = clean_for_speech((res or {}).get("reply", "")) if isinstance(res, dict) else ""
             if isinstance(res, dict) and res.get("respond") and reply:
                 self._last_chime = time.time()
                 log.info("Einmischen: ja (%.1fs) – „%s“ → %s", time.time() - t0, text, reply)
                 self.say(reply, priority=2, max_age=15, lang=lang)
+                if hasattr(self, "note_dialogue"):
+                    self.note_dialogue("them", text)
+                    self.note_dialogue("coach", reply)
             elif res is None:
                 log.info("Einmischen: nein – KI hat nicht verständlich geantwortet (%.1fs)", time.time() - t0)
             else:
@@ -951,18 +1015,27 @@ class Coach:
         explain = bool(EXPLAIN_RE.search(nq)) and not live_now
         tactic = bool(TACTIC_Q_RE.search(nq)) and not live_now
         words = 160 if explain else 140 if caps or app_help else 110 if tactic else self.cfg.get_path("llm.max_answer_words", 35)
+        trouble = bool(TROUBLE_RE.search(nq))
+        if trouble and self.mode == "cast":  # live auf Stream: keine Technik-Hilfe on air – das läuft privat in der App
+            log.info("Problem-Frage im Caster-Modus – nicht live beantwortet (Hilfe im App-Chat / Kasten „Probleme“): %s",
+                     question)
+            return None
         smalltalk = hasattr(self, "game_focus") and not self.game_focus() and not (tactic or caps or explain or app_help)
         extra = ("\n\n" + P.CAPABILITIES.format(name=self.name)) if caps or app_help else ""
         if explain:
             extra += P.EXPLAIN
+        if trouble:
+            extra += P.TROUBLESHOOT
         if smalltalk:  # niemand spielt: normaler Gesprächspartner, kurzer Prompt = schnellere Antwort
             words = max(int(words), 45)
             system = self._sys(P.SMALLTALK)
         else:
             system = self._sys(P.LIVE_ANSWER, extra=extra, max_words=words)
         long = caps or app_help or explain
+        if smalltalk and (trouble or getattr(self, "health", None)):
+            system += P.TROUBLESHOOT  # bekannte Probleme / Problem-Frage: ehrlich bleiben, auch im Smalltalk
         system += ("\n\nThis is read aloud in voice chat: " + ("a complete but natural spoken explanation, 5-10 sentences. "
-                   if long else "1-3 short sentences. ") + "Plain words only. "
+                   if long else "1-2 short sentences, one thought. " if smalltalk else "1-3 short sentences. ") + "Plain words only. "
                    "No emojis, no (haha)/*actions*, no lists, no markdown. Answer in the language of the question.")
         content: list = []
         from ..vision.capture import to_jpeg_b64
@@ -976,6 +1049,9 @@ class Coach:
         elif self.last_frame is not None and self.tracker.state.active:
             content.append(image_block(to_jpeg_b64(self.last_frame, int(self.cfg.get_path("capture.vision_width", 1280)))))
         ctx = self._smalltalk_context(question) if smalltalk else self._live_context()
+        status = health_summary(getattr(self, "health", None) or [])
+        if status or trouble:
+            ctx += "\n\n" + (status or "YOUR OWN STATUS: your self-check finds no problem right now.")
         content.append({"type": "text", "text": f"{ctx}\n\nANSWER IN: {lang}\nPLAYER SAYS: {question}"})
         log.info("Frage erkannt: „%s“ – frage die KI …", question)
         t0 = time.time()
@@ -983,7 +1059,7 @@ class Coach:
 
         async def filler() -> None:  # dauert die KI länger, kurz Bescheid geben (wie ein Mensch: „Okay, …“)
             await asyncio.sleep(float(self.cfg.get_path("llm.filler_after_s", 1.6)))
-            if not spoken:
+            if not spoken and (not hasattr(self, "use_filler") or self.use_filler()):
                 import random
 
                 self.say(random.choice(["Okay.", "Mhm.", "Gute Frage."] if lang == "de" else ["Okay.", "Right.", "Good question."]),
@@ -1035,10 +1111,14 @@ class Coach:
         finally:
             f.cancel()
         if not reply:
+            self.last_llm_fail = time.time()
             log.warning("Keine Antwort von der KI nach %.1fs (läuft Ollama? Modell geladen?)", time.time() - t0)
             self.say(t("thinking_error", lang), priority=2, lang=lang)
             return None
         log.info("Antwort komplett nach %.1fs: %s", time.time() - t0, reply)
+        if hasattr(self, "note_dialogue"):
+            self.note_dialogue("them", question)
+            self.note_dialogue("coach", reply)
         if hasattr(self, "remember_talk"):
             self.remember_talk(question, reply, lang)
         return reply
@@ -1167,6 +1247,7 @@ class Coach:
             try:
                 frame = await asyncio.to_thread(self.capture.grab)
                 self.last_frame = frame
+                self.last_frame_ts = time.time()
                 if self.tracker.state.active:
                     if self.minimap.roi:
                         markers = await asyncio.to_thread(self.minimap.update, frame)
@@ -1213,9 +1294,9 @@ class Coach:
         self.watch_log.clear()
         log.info("Zuschauen über Twitch: %s", ch)
         if announce:
-            self.say(f"Okay, ich schaue bei {ch} auf Twitch zu. Das hat ein paar Sekunden Verzögerung."
-                     if self.lang == "de" else f"Okay, watching {ch} on Twitch. There's a few seconds of delay.",
-                     priority=2)
+            self.say(f"Okay, ich verbinde mich mit {ch} auf Twitch, Moment." if self.lang == "de"
+                     else f"Okay, connecting to {ch} on Twitch, one sec.", priority=2)
+            self._spawn_confirm_watch()  # sagt danach ehrlich, ob ein Bild kommt
         return self.watch
 
     def _watch_frame(self):
@@ -1234,6 +1315,60 @@ class Coach:
                 return next(iter(live.values()))
             return composite(live) if live else None
         return self.last_frame
+
+    def watch_seeing(self) -> tuple[bool, str]:
+        """Kommt beim Zuschauen wirklich ein Bild an? (True, "") oder (False, Grund) – damit Yvara AI nie behauptet,
+        zuzuschauen, wenn nichts ankommt (z. B. Discord-Fenster minimiert, Twitch offline, Aufnahme aus)."""
+        if not self.watch.get("on"):
+            return False, "Zuschauen ist aus"
+        src = str(self.watch.get("source") or "")
+        if not src.startswith(("twitch:", "stream:")) and self.last_frame is not None \
+                and time.time() - float(getattr(self, "last_frame_ts", 0) or 0) > 10:
+            return False, "das Bild ist eingefroren (Bildschirmaufnahme hängt)"
+        try:
+            frame = self._watch_frame()
+        except Exception as e:
+            return False, f"Bildfehler: {e}"
+        if frame is None:
+            return False, ("vom Twitch-Kanal kommt kein Bild (Stream offline oder noch am Laden?)"
+                           if src.startswith("twitch:") else "es kommt kein Bild an")
+        if frame_is_blank(frame):
+            return False, "das Bild ist schwarz/leer (Fenster minimiert oder verdeckt?)"
+        return True, ""
+
+    def _screen_note(self) -> str:
+        """Für die KI: sieht sie gerade wirklich etwas? Sonst darf sie nicht so tun."""
+        if not self.watch.get("on"):
+            return ("SCREEN: you are NOT watching any screen or stream right now. Never claim you are watching or saw "
+                    "something. If they want you to watch, tell them to switch on Zuschauen in the app (tab Match) "
+                    "or Caster mode - Discord screen shares cannot reach a bot directly.")
+        ok, why = self.watch_seeing()
+        if not ok:
+            return (f"SCREEN: watching is switched on, but NO picture arrives ({why}). Say honestly that you cannot "
+                    "see anything right now; never describe or comment on the screen.")
+        return ""
+
+    async def _confirm_watch(self, delay: float = 12.0) -> None:
+        """Nach dem Einschalten kurz warten und ehrlich sagen, ob wirklich ein Bild ankommt."""
+        await asyncio.sleep(delay)
+        if not self.watch.get("on"):
+            return
+        ok, why = self.watch_seeing()
+        lang = self.lang
+        if ok:
+            log.info("Zuschauen: Bild kommt an (%s)", self.watch.get("source") or "Bildschirm")
+            self.say("Bild ist da, ich sehe es." if lang == "de" else "Got the picture, I can see it.", priority=2, lang=lang)
+        else:
+            log.warning("Zuschauen: kein Bild – %s", why)
+            self.say(f"Achtung, ich sehe nichts: {why}." if lang == "de" else "Heads up, I can't see anything yet.",
+                     priority=2, lang=lang)
+
+    def _spawn_confirm_watch(self) -> None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._spawn(self._confirm_watch(float(self.cfg.get_path("capture.watch_confirm_s", 12))))
 
     def set_watch(self, on: bool, source: str | None = None, announce: bool = True) -> dict:
         """Bildschirm zeigen: Yvara AI schaut live mit (eigenes Spiel, Discord-Stream eines Mates, Caster-Ansicht)."""
@@ -1255,9 +1390,12 @@ class Coach:
             if on and not self.watch["on"]:
                 self.say("Ich kann gerade keinen Bildschirm sehen." if lang == "de" else "I can't see a screen right now.",
                          priority=2, lang=lang)
+            elif on:  # erst bestätigen, wenn wirklich ein Bild ankommt
+                self.say("Okay, ich versuche zuzuschauen, Moment." if lang == "de" else "Okay, trying to watch, one sec.",
+                         priority=2, lang=lang)
+                self._spawn_confirm_watch()
             else:
-                self.say(("Okay, ich schaue zu." if on else "Okay, ich schaue nicht mehr zu.") if lang == "de"
-                         else ("Okay, I'm watching." if on else "Okay, stopped watching."), priority=2, lang=lang)
+                self.say("Okay, ich schaue nicht mehr zu." if lang == "de" else "Okay, stopped watching.", priority=2, lang=lang)
         return self.watch
 
     def _watch_context(self) -> str:
@@ -1293,6 +1431,11 @@ class Coach:
         while True:
             await asyncio.sleep(float(self.cfg.get_path("capture.vision_interval_s", 20)))
             frame = self._watch_frame() if self.watch["on"] and not self.tracker.state.active else None
+            if frame is not None and frame_is_blank(frame):
+                log.debug("Zuschauen: Bild ist schwarz/leer – keine Analyse")
+                frame = None
+                if self.mode in ("talk", "cast") or not self.tracker.state.active:
+                    continue
             if frame is not None:
                 try:
                     await self.spectate_frame(frame)
@@ -1632,11 +1775,14 @@ class Coach:
             self._chat_library(text),
             self._watch_context(),
             self._strats_context(self.tracker.state.map, self.tracker.state.mode),
+            health_summary(getattr(self, "health", None) or []),
         ] if x)
         nq = _norm(text)
         extra = ("\n\n" + P.CAPABILITIES.format(name=self.name)) if HELP_RE.search(nq) or CAPS_RE.search(nq) else ""
         if EXPLAIN_RE.search(nq):
             extra += P.EXPLAIN.replace("Spoken style, no lists.", "Here in text chat short headings or a few bullets are fine.")
+        if TROUBLE_RE.search(nq):
+            extra += P.TROUBLESHOOT
         system = self._sys(P.CHAT, extra=extra, context=context)
         msgs = [{"role": m["role"], "content": m["text"]} for m in history if m["role"] in ("user", "assistant") and m["text"]]
         # Rollen müssen abwechseln
