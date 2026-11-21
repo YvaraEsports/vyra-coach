@@ -1,32 +1,78 @@
 // Yvara AI – lokale Chat-Oberfläche
 const $ = (s) => document.querySelector(s);
+// --- Rückmeldung für jede Aktion -------------------------------------------
+// Merkt sich, welches Element (Button, Kachel, Auswahl, Schalter, ✕) gerade geklickt/geändert wurde.
+// Der erste API-Aufruf danach zeigt daran automatisch: Laden (Spinner) → Erfolg (grün ✓) oder Fehler (rot, wackeln + Grund).
+const FB_SEL = "button, .tile, select, input[type=checkbox], input[type=radio], input[type=file], .x, [data-a], [data-co]";
+let fbTrigger = null, lastToastAt = 0;
+["click", "change"].forEach((ev) => document.addEventListener(ev, (e) => {
+  const el = e.target && e.target.closest && e.target.closest(FB_SEL);
+  if (!el || el.closest(".tabs") || el.closest("#toasts")) return;
+  // Schalter: das ganze Label animieren, nicht nur das kleine Kästchen
+  fbTrigger = el.matches("input[type=checkbox], input[type=radio]") ? (el.closest("label") || el) : el;
+  setTimeout(() => { fbTrigger = null; }, 0);
+}, true));
+function fbPulse(el, cls, ms = 1100) {
+  if (!el || !el.isConnected) return;
+  el.classList.remove("fb-ok", "fb-err"); void el.offsetWidth; el.classList.add(cls);
+  clearTimeout(el._fbT); el._fbT = setTimeout(() => el.classList.remove(cls), ms);
+}
+function fbStart(el) {
+  if (!el) return () => {};
+  el._fbN = (el._fbN || 0) + 1;
+  // Spinner erst nach kurzer Zeit, damit schnelle Aktionen nicht flackern
+  const t = setTimeout(() => { if (el._fbN) { el.classList.add("fb-busy"); el.setAttribute("aria-busy", "true"); } }, 150);
+  return () => { clearTimeout(t); el._fbN = Math.max(0, el._fbN - 1); if (!el._fbN) { el.classList.remove("fb-busy"); el.removeAttribute("aria-busy"); } };
+}
+const cleanErr = (e) => String(e || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220);
 const api = async (url, opts = {}) => {
   // Gibt immer ein Objekt zurück; bei Fehlern {ok:false, error:"…"} statt einer Exception
+  const trigger = fbTrigger; fbTrigger = null;
+  const done = fbStart(trigger);
+  let res;
   try {
-    const r = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opts,
-      body: opts.body && typeof opts.body !== "string" && !(opts.body instanceof FormData) ? JSON.stringify(opts.body) : opts.body });
+    const isForm = opts.body instanceof FormData;
+    const r = await fetch(url, { headers: isForm ? {} : { "Content-Type": "application/json" }, ...opts,
+      body: opts.body && typeof opts.body !== "string" && !isForm ? JSON.stringify(opts.body) : opts.body });
     const text = await r.text();
-    let data; try { data = JSON.parse(text); } catch { data = { error: text }; }
-    if (!r.ok) return { ...(typeof data === "object" && data ? data : {}), ok: false, error: (data && data.error) || text || `Fehler ${r.status}` };
-    return data;
-  } catch (e) { return { ok: false, error: "Yvara AI ist nicht erreichbar – läuft das Programm noch?" }; }
+    let data; try { data = JSON.parse(text); } catch { data = r.ok ? { error: cleanErr(text) || "Leere Antwort" } : { error: cleanErr(text) }; }
+    if (!r.ok) res = { ...(typeof data === "object" && data ? data : {}), ok: false, error: cleanErr((data && data.error) || text) || `Fehler ${r.status}` };
+    else res = data;
+  } catch (e) { res = { ok: false, error: "Yvara AI ist nicht erreichbar – läuft das Programm noch?" }; }
+  done();
+  if (trigger) {
+    const bad = failed(res) || (res && typeof res.error === "string" && res.error);
+    const at = Date.now();
+    fbPulse(trigger, bad ? "fb-err" : "fb-ok");
+    // Hat die Aktion selbst keine Meldung gezeigt, zeigen wir wenigstens den Grund des Fehlers
+    if (bad) setTimeout(() => { if (lastToastAt < at) toast("Fehlgeschlagen: " + (res.error || "unbekannter Fehler"), false); }, 120);
+  }
+  return res;
 };
 const failed = (r) => !r || r.ok === false;
-// Grüne/rote Rückmeldung unten rechts (+ optional Button kurz aufleuchten/wackeln lassen)
+// Grüne/rote Rückmeldung unten rechts (+ optional Element kurz aufleuchten/wackeln lassen)
 function toast(text, ok = true, el = null) {
+  lastToastAt = Date.now();
   const t = document.createElement("div");
+  // Fehler bleiben länger stehen, damit man den Grund lesen kann; Klick schließt
+  const life = ok ? 3000 : Math.min(9000, 4500 + String(text).length * 30);
   t.className = "toast " + (ok ? "ok" : "err");
+  t.style.setProperty("--life", life + "ms");
+  t.setAttribute("role", ok ? "status" : "alert");
   t.innerHTML = `<span class="ic">${ok ? "✓" : "✕"}</span><span></span>`;
   t.lastChild.textContent = text;
+  t.onclick = () => t.remove();
   $("#toasts").appendChild(t);
-  setTimeout(() => t.remove(), 3100);
-  if (el) { const c = ok ? "flash-ok" : "flash-err"; el.classList.remove(c); void el.offsetWidth; el.classList.add(c); }
+  setTimeout(() => t.remove(), life + 300);
+  if (el) fbPulse(el, ok ? "fb-ok" : "fb-err");
 }
+// Zeile sanft ausblenden und dann entfernen
+function fbRemove(el) { el.classList.add("fb-gone"); setTimeout(() => el.remove(), 220); }
 async function act(btn, promise, okText, errText) {
   if (btn) btn.disabled = true;
   const r = await promise;
   if (btn) btn.disabled = false;
-  if (failed(r)) toast(`${errText}${r && r.error ? ": " + r.error : ""}`, false, btn);
+  if (failed(r) || (r && typeof r.error === "string" && r.error)) toast(`${errText}${r && r.error ? ": " + r.error : ""}`, false, btn);
   else toast(okText, true, btn);
   return r;
 }
@@ -97,9 +143,9 @@ async function startRec() {
       const wait = addMsg("assistant", "hört zu …", "thinking");
       const fd = new FormData();
       fd.append("audio", blob, "voice.webm"); fd.append("session_id", sessionId); fd.append("web", $("#webToggle").checked);
-      const r = await fetch("/api/voice", { method: "POST", body: fd }).then((r) => r.json());
+      const r = await api("/api/voice", { method: "POST", body: fd });
       wait.remove();
-      if (r.error) { addMsg("assistant", r.error); return; }
+      if (r.error) { addMsg("assistant", r.error); toast("Spracheingabe fehlgeschlagen: " + r.error, false, $("#micBtn")); return; }
       addMsg("user", "🎙️ " + r.text); addMsg("assistant", r.reply); play(r.audio); loadSessions();
     };
     rec.start(); $("#micBtn").classList.add("rec");
@@ -118,7 +164,12 @@ async function loadSessions() {
     li.className = s.id === sessionId ? "active" : "";
     li.innerHTML = `<span>${esc(s.title || "Chat")}</span><b class="x" title="Löschen">✕</b>`;
     li.onclick = () => openSession(s.id);
-    li.querySelector(".x").onclick = async (e) => { e.stopPropagation(); await api(`/api/sessions/${s.id}`, { method: "DELETE" }); if (sessionId === s.id) newChat(); loadSessions(); };
+    li.querySelector(".x").onclick = async (e) => {
+      e.stopPropagation();
+      const r = await api(`/api/sessions/${s.id}`, { method: "DELETE" });
+      if (failed(r)) return toast("Chat nicht gelöscht: " + r.error, false);
+      toast("Chat gelöscht"); if (sessionId === s.id) newChat(); loadSessions();
+    };
     $("#sessionList").appendChild(li);
   }
 }
@@ -159,10 +210,11 @@ $("#newTeamOk").onclick = async () => {
 function playerRow(p = {}) {
   const d = document.createElement("div"); d.className = "player-row";
   d.innerHTML = `<input placeholder="In-Game-Name" value="${esc(p.ingame || "")}"><input placeholder="Rolle" value="${esc(p.role || "")}"><button title="Entfernen">✕</button>`;
-  d.querySelector("button").onclick = () => d.remove();
+  d.querySelector("button").onclick = () => fbRemove(d);
   $("#players").appendChild(d);
+  return d;
 }
-$("#addPlayer").onclick = () => playerRow();
+$("#addPlayer").onclick = () => { const d = playerRow(); d.classList.add("fb-new"); d.querySelector("input").focus(); };
 $("#saveTeam").onclick = async () => {
   const players = [...document.querySelectorAll(".player-row")].map((r) => { const [a, b] = r.querySelectorAll("input"); return { ingame: a.value.trim(), role: b.value.trim() }; });
   if (!$("#tName").value.trim()) { toast("Teamname darf nicht leer sein", false, $("#tName")); return; }
@@ -172,7 +224,10 @@ $("#saveTeam").onclick = async () => {
 };
 $("#profSelect").onchange = async (e) => {
   const [kind, ...n] = e.target.value.split(":");
-  $("#profile").innerHTML = md((await api(`/api/profile?kind=${kind}&name=${encodeURIComponent(n.join(":"))}`)).text);
+  $("#profile").innerHTML = '<p class="hint fb-loading">Lade Profil …</p>';
+  const r = await api(`/api/profile?kind=${kind}&name=${encodeURIComponent(n.join(":"))}`);
+  $("#profile").innerHTML = failed(r) ? `<p class="hint">⚠️ Profil nicht geladen: ${esc(r.error || "")}</p>` : md(r.text);
+  $("#profile").classList.add("fb-new"); setTimeout(() => $("#profile").classList.remove("fb-new"), 400);
 };
 
 // --- Gedächtnis ----------------------------------------------------------
@@ -183,7 +238,7 @@ async function loadMemories() {
     const li = document.createElement("li");
     const src = { "gespräch": "🗣️ aus Gespräch", manual: "✍️ von dir", chat: "💬 Chat", autolearn: "🎓 gelernt", match: "🎮 Match" }[m.source] || "";
     li.innerHTML = `<span>${esc(m.text)}${src ? ` <small class="hint">${src}</small>` : ""}</span><b class="x">✕</b>`;
-    li.querySelector(".x").onclick = async () => { await api(`/api/memories/${m.id}`, { method: "DELETE" }); loadMemories(); };
+    li.querySelector(".x").onclick = async () => { const r = await api(`/api/memories/${m.id}`, { method: "DELETE" }); toast(failed(r) ? "Nicht gelöscht: " + r.error : "Erinnerung gelöscht", !failed(r)); loadMemories(); };
     $("#memList").appendChild(li);
   }
 }
@@ -198,14 +253,17 @@ const matchBody = () => ({ mode: $("#mMode").value, map: $("#mMap").value, oppon
 $("#startBtn").onclick = async () => { await act($("#startBtn"), api("/api/match/start", { method: "POST", body: matchBody() }), "Match gestartet", "Start fehlgeschlagen"); refresh(); };
 $("#endBtn").onclick = async () => {
   addMsg("assistant", "Match beendet – ich schreibe das Review und lerne daraus …", "thinking");
-  await api("/api/match/end", { method: "POST", body: { ours: $("#mOurs").value, enemy: $("#mEnemy").value } });
+  const r = await api("/api/match/end", { method: "POST", body: { ours: $("#mOurs").value, enemy: $("#mEnemy").value } });
   document.querySelectorAll(".thinking").forEach((x) => x.remove());
-  addMsg("assistant", "Review fertig. Es liegt im Team-Ordner unter reports/ und im Discord-Report-Kanal."); refresh();
+  if (failed(r)) { addMsg("assistant", "Review fehlgeschlagen: " + r.error); toast("Match-Ende fehlgeschlagen: " + r.error, false, $("#endBtn")); }
+  else { addMsg("assistant", "Review fertig. Es liegt im Team-Ordner unter reports/ und im Discord-Report-Kanal."); toast("Match beendet – Review fertig", true, $("#endBtn")); }
+  refresh();
 };
 $("#planBtn").onclick = async () => {
   const wait = addMsg("assistant", "erstellt Gameplan …", "thinking");
   const r = await api("/api/plan", { method: "POST", body: matchBody() });
-  wait.remove(); addMsg("assistant", r.plan || "Plan fehlgeschlagen (API-Key?)");
+  wait.remove(); addMsg("assistant", r.plan || "Plan fehlgeschlagen: " + (r.error || "keine Antwort (API-Key?)"));
+  toast(r.plan ? "Gameplan fertig" : "Gameplan fehlgeschlagen" + (r.error ? ": " + r.error : ""), !!r.plan, $("#planBtn"));
 };
 async function loadCallouts() {
   const mp = $("#coMap").value.trim();
@@ -214,9 +272,9 @@ async function loadCallouts() {
   $("#coMaps").innerHTML = r.maps.map((m) => `<option value="${esc(m)}">`).join("");
   $("#coList").innerHTML = r.callouts.map((c) => `<li><span><b>${esc(c.name)}</b>${c.zone ? " · " + esc(c.zone) : ""}${c.aliases.length ? " · " + esc(c.aliases.join(", ")) : ""}
     <span class="hint">${c.source === "learned" ? "(gelernt)" : ""}</span></span>${c.id ? `<span class="x" data-co="${c.id}">✕</span>` : ""}</li>`).join("") || `<li class="hint">Noch keine Callouts für diese Map.</li>`;
-  $("#coList").querySelectorAll("[data-co]").forEach((x) => x.onclick = async () => { await api(`/api/callouts/${x.dataset.co}`, { method: "DELETE" }); loadCallouts(); });
+  $("#coList").querySelectorAll("[data-co]").forEach((x) => x.onclick = async () => { const r = await api(`/api/callouts/${x.dataset.co}`, { method: "DELETE" }); toast(failed(r) ? "Nicht gelöscht: " + r.error : "Callout gelöscht", !failed(r)); loadCallouts(); });
 }
-$("#coLoad").onclick = loadCallouts;
+$("#coLoad").onclick = async () => { await loadCallouts(); toast("Callouts geladen", true, $("#coLoad")); };
 $("#coAdd").onclick = async () => {
   if (!$("#coMap").value.trim() || !$("#coName").value.trim()) { toast("Map und Callout-Name eintragen", false, $("#coAdd")); return; }
   const r = await act($("#coAdd"), api("/api/callouts", { method: "POST", body: { map: $("#coMap").value, name: $("#coName").value, zone: $("#coZone").value, aliases: $("#coAlias").value } }),
@@ -229,16 +287,20 @@ $("#cMode").onchange = async (e) => {
   await act(null, api("/api/mode", { method: "POST", body: { mode: e.target.value } }), `Modus: ${names[e.target.value]}`, "Modus nicht geändert"); refresh();
 };
 $("#lsStart").onclick = async () => {
-  const topic = $("#lsTopic").value.trim(); if (!topic) return;
+  const topic = $("#lsTopic").value.trim(); if (!topic) { toast("Erst ein Thema eintragen", false, $("#lsTopic")); return; }
   $("#lsInfo").textContent = "Yvara AI bereitet das Training vor …";
   const r = await api("/api/lesson", { method: "POST", body: { topic } });
-  if (!r || !r.ok) $("#lsInfo").textContent = "Konnte keine Lektion erstellen.";
+  if (!r || !r.ok) { $("#lsInfo").textContent = "Konnte keine Lektion erstellen." + (r && r.error ? " Grund: " + r.error : ""); toast("Training nicht gestartet" + (r && r.error ? ": " + r.error : ""), false, $("#lsStart")); }
+  else toast("Training gestartet", true, $("#lsStart"));
   refresh();
 };
-$("#lsNext").onclick = async () => { await api("/api/lesson", { method: "POST", body: { action: "next" } }); refresh(); };
-$("#lsRepeat").onclick = () => api("/api/lesson", { method: "POST", body: { action: "repeat" } });
-$("#lsStop").onclick = async () => { await api("/api/lesson", { method: "POST", body: { action: "stop" } }); refresh(); };
-$("#focusSelect").onchange = async (e) => { await api("/api/focus", { method: "POST", body: { player: e.target.value } }); refresh(); };
+$("#lsNext").onclick = async () => { await act(null, api("/api/lesson", { method: "POST", body: { action: "next" } }), "Nächster Schritt", "Weiter ging nicht"); refresh(); };
+$("#lsRepeat").onclick = () => act(null, api("/api/lesson", { method: "POST", body: { action: "repeat" } }), "Wird wiederholt", "Wiederholen ging nicht");
+$("#lsStop").onclick = async () => { await act(null, api("/api/lesson", { method: "POST", body: { action: "stop" } }), "Training beendet", "Beenden ging nicht"); refresh(); };
+$("#focusSelect").onchange = async (e) => {
+  const p = e.target.value;
+  await act(null, api("/api/focus", { method: "POST", body: { player: p } }), p ? `Fokus auf ${e.target.selectedOptions[0]?.textContent || p}` : "Fokus aus", "Fokus nicht geändert"); refresh();
+};
 
 // --- Feeds -----------------------------------------------------------------
 function feedRow(f = { player: "", kind: "monitor", ref: "" }) {
@@ -247,14 +309,15 @@ function feedRow(f = { player: "", kind: "monitor", ref: "" }) {
   d.innerHTML = `<input placeholder="Spieler" value="${esc(f.player || "")}">
     <select>${["monitor", "window", "region", "twitch", "stream", "device"].map((k) => `<option ${k === f.kind ? "selected" : ""}>${k}</option>`).join("")}</select>
     <input placeholder="Monitor-Nr / Fenster / Twitch-Kanal / Port (stream)" value="${esc(String(ref))}"><span class="dot ${f.ok ? "ok" : ""}" title="${esc(f.error || "")}"></span><button>✕</button>`;
-  d.querySelector("button").onclick = () => d.remove();
+  d.querySelector("button").onclick = () => fbRemove(d);
   $("#feedRows").appendChild(d);
+  return d;
 }
 async function loadFeeds() {
   const r = await api("/api/feeds");
   $("#feedRows").innerHTML = ""; r.feeds.forEach(feedRow); $("#autoFocus").checked = !!r.auto_focus;
 }
-$("#addFeed").onclick = () => feedRow();
+$("#addFeed").onclick = () => { const d = feedRow(); d.classList.add("fb-new"); d.querySelector("input").focus(); };
 $("#saveFeeds").onclick = async () => {
   const feeds = [...document.querySelectorAll(".feed-row")].map((r) => { const [p, , ref] = r.querySelectorAll("input"); return { player: p.value.trim(), kind: r.querySelector("select").value, ref: ref.value.trim() }; });
   await act($("#saveFeeds"), api("/api/feeds", { method: "POST", body: { feeds, auto_focus: $("#autoFocus").checked } }), "Bildquellen übernommen", "Bildquellen nicht übernommen");
@@ -264,10 +327,11 @@ loadFeeds();
 
 // --- Tools -----------------------------------------------------------------
 $("#clipBtn").onclick = () => act($("#clipBtn"), api("/api/clip", { method: "POST", body: { note: "aus der App" } }), "Moment geclippt", "Clip fehlgeschlagen");
-$("#timeoutBtn").onclick = async () => { await api("/api/timeout", { method: "POST", body: {} }); };
+$("#timeoutBtn").onclick = () => act($("#timeoutBtn"), api("/api/timeout", { method: "POST", body: {} }), "Timeout ausgerufen", "Timeout ging nicht");
 $("#trainingBtn").onclick = async () => {
   const w = addMsg("assistant", "erstellt Trainingsplan …", "thinking");
-  const r = await api("/api/training", { method: "POST", body: {} }); w.remove(); addMsg("assistant", r.plan || "Fehlgeschlagen.");
+  const r = await api("/api/training", { method: "POST", body: {} }); w.remove(); addMsg("assistant", r.plan || "Fehlgeschlagen: " + (r.error || "keine Antwort"));
+  toast(r.plan ? "Trainingsplan fertig" : "Trainingsplan fehlgeschlagen", !!r.plan, $("#trainingBtn"));
 };
 $("#scoutBtn").onclick = async () => {
   const opp = $("#mOpp").value.trim();
@@ -337,7 +401,7 @@ async function loadLibrary() {
   for (const l of (lib.lessons || []).slice(0, 40)) {
     const li = document.createElement("li");
     li.innerHTML = `<span><b>${esc(l.mode || "?")}</b> ${esc(l.lesson)}</span><b class="x">✕</b>`;
-    li.querySelector(".x").onclick = async () => { await api(`/api/library/${l.id}`, { method: "DELETE" }); loadLibrary(); };
+    li.querySelector(".x").onclick = async () => { const r = await api(`/api/library/${l.id}`, { method: "DELETE" }); toast(failed(r) ? "Nicht gelöscht: " + r.error : "Aus der Bibliothek gelöscht", !failed(r)); loadLibrary(); };
     $("#lessons").appendChild(li);
   }
 }
@@ -354,8 +418,9 @@ $("#alStart").onclick = async () => {
 };
 $("#alStop").onclick = async () => { await act($("#alStop"), api("/api/autolearn/stop", { method: "POST", body: {} }), "Fortbildung wird gestoppt", "Stoppen fehlgeschlagen"); loadLibrary(); };
 $("#alGameSave").onclick = () => act($("#alGameSave"), api("/api/settings", { method: "POST", body: { "autolearn.game": $("#alGame").value || "Modern Warfare 4" } }), "Spiel übernommen", "Speichern fehlgeschlagen");
-$("#alAuto").onchange = () => api("/api/settings", { method: "POST", body: { "autolearn.autostart": $("#alAuto").checked } });
-$("#stStop").onclick = async () => { await api("/api/study/stop", { method: "POST", body: {} }); loadLibrary(); };
+$("#alAuto").onchange = () => act(null, api("/api/settings", { method: "POST", body: { "autolearn.autostart": $("#alAuto").checked } }),
+  $("#alAuto").checked ? "Fortbildung startet jetzt automatisch" : "Automatische Fortbildung aus", "Nicht gespeichert");
+$("#stStop").onclick = async () => { await act($("#stStop"), api("/api/study/stop", { method: "POST", body: {} }), "Lern-Session wird gestoppt", "Stoppen fehlgeschlagen"); loadLibrary(); };
 setInterval(() => { if (!$("#tab-study").classList.contains("hidden")) loadLibrary(); }, 4000);
 
 // --- Einstellungen -------------------------------------------------------
@@ -405,16 +470,19 @@ async function loadVoices() {
     li.querySelector(".sty").onclick = async () => {
       const st = prompt(`Wie redet ${c.id.slice(7)}? (z. B. „locker, sagt ab und zu Bro, viel Slang“) – leer = kein eigener Stil`, c.style || "");
       if (st === null) return;
-      await api("/api/voices/style", { method: "POST", body: { name: c.id.slice(7), style: st } });
+      const r = await api("/api/voices/style", { method: "POST", body: { name: c.id.slice(7), style: st } });
+      if (failed(r)) return toast("Sprechstil nicht gespeichert: " + r.error, false);
       toast("Sprechstil gespeichert"); loadVoices();
     };
     li.querySelectorAll(".use").forEach((a) => a.onclick = async () => {
       const body = a.dataset.l === "de" ? { "tts.xtts_voice": c.id } : { "tts.xtts_voice_en": c.id };
       body["tts.engine"] = "xtts";
-      await api("/api/settings", { method: "POST", body }); toast(`${c.id.slice(7)} ist jetzt die ${a.dataset.l === "de" ? "deutsche" : "englische"} Stimme`);
+      const r = await api("/api/settings", { method: "POST", body });
+      if (failed(r)) return toast("Stimme nicht übernommen: " + r.error, false);
+      toast(`${c.id.slice(7)} ist jetzt die ${a.dataset.l === "de" ? "deutsche" : "englische"} Stimme`);
       await refresh(true);
     });
-    li.querySelector(".x").onclick = async () => { await api(`/api/voices/custom/${encodeURIComponent(c.id.slice(7))}`, { method: "DELETE" }); loadVoices(); };
+    li.querySelector(".x").onclick = async () => { const r = await api(`/api/voices/custom/${encodeURIComponent(c.id.slice(7))}`, { method: "DELETE" }); toast(failed(r) ? "Stimme nicht gelöscht: " + r.error : "Stimme gelöscht", !failed(r)); loadVoices(); };
     $("#cvList").appendChild(li);
   }
 }
@@ -490,7 +558,7 @@ $("#cvSave").onclick = async () => {
   files.forEach((f, i) => fd.append("audio", f, f.name || `stimme${i}.webm`)); fd.append("name", $("#cvName").value || "meine_stimme");
   fd.append("consent", "true"); fd.append("use", $("#cvUse").value);
   $("#cvInfo").textContent = "Wird gespeichert …";
-  const r = await fetch("/api/voices/custom", { method: "POST", body: fd }).then((r) => r.json()).catch((e) => ({ error: e.message }));
+  const r = await api("/api/voices/custom", { method: "POST", body: fd });
   if (r.error) { toast(r.error, false); $("#cvInfo").textContent = r.error; return; }
   const forWhat = { both: "Deutsch und Englisch", de: "Deutsch", en: "Englisch" }[$("#cvUse").value];
   if (r.xtts_ready === false) {
@@ -621,7 +689,7 @@ async function loadStrats() {
       const r = await api(`/api/strats/${s.id}/discord`, { method: "POST", body: {} });
       toast(r.error ? "Posten fehlgeschlagen: " + r.error : "In Discord gepostet", !r.error);
     };
-    li.querySelector('[data-a="del"]').onclick = async () => { await api(`/api/strats/${s.id}`, { method: "DELETE" }); loadStrats(); };
+    li.querySelector('[data-a="del"]').onclick = async () => { const r = await api(`/api/strats/${s.id}`, { method: "DELETE" }); toast(failed(r) ? "Strat nicht gelöscht: " + r.error : "Strat gelöscht", !failed(r)); loadStrats(); };
     ul.appendChild(li);
   }
   if (!ul.children.length) ul.innerHTML = '<li class="hint" style="display:block">Noch keine Strats.</li>';
@@ -729,7 +797,7 @@ $("#sbMap").onchange = sbLoadBg;
 $("#sbBg").onchange = async () => {
   const f = $("#sbBg").files[0]; if (!f) return;
   const fd = new FormData(); fd.append("map", $("#sbMap").value); fd.append("image", f);
-  const r = await fetch("/api/strats/bg", { method: "POST", body: fd }).then((r) => r.json()).catch((e) => ({ error: e.message }));
+  const r = await api("/api/strats/bg", { method: "POST", body: fd });
   if (r.error) toast(r.error, false); else { toast("Kartenbild gespeichert"); sbLoadBg(); }
   $("#sbBg").value = "";
 };
@@ -841,7 +909,8 @@ async function loadHomeVoices() {
         } finally { e.target.textContent = "▶"; }
         return;
       }
-      await api("/api/settings", { method: "POST", body: { "tts.engine": "xtts", "tts.xtts_voice": id, "tts.xtts_voice_en": "" } });
+      const r = await api("/api/settings", { method: "POST", body: { "tts.engine": "xtts", "tts.xtts_voice": id, "tts.xtts_voice_en": "" } });
+      if (failed(r)) return toast("Stimme nicht übernommen: " + r.error, false, t);
       state.settings["tts.engine"] = "xtts"; state.settings["tts.xtts_voice"] = id; voiceWanted = id; voiceWantedEn = "";
       toast(`Stimme: ${t.querySelector("b").textContent}`); homeUpdate();
     };
@@ -850,7 +919,8 @@ async function loadHomeVoices() {
 }
 document.querySelectorAll("#modeTiles .tile").forEach((t) => t.onclick = () => { $("#cMode").value = t.dataset.mode; $("#cMode").dispatchEvent(new Event("change")); });
 document.querySelectorAll("#vibeTiles .tile").forEach((t) => t.onclick = async () => {
-  await api("/api/settings", { method: "POST", body: { "coach.vibe": t.dataset.vibe } });
+  const r = await api("/api/settings", { method: "POST", body: { "coach.vibe": t.dataset.vibe } });
+  if (failed(r)) return toast("Stil nicht übernommen: " + r.error, false, t);
   state.settings["coach.vibe"] = t.dataset.vibe; $("#sVibe").value = t.dataset.vibe;
   toast(`Stil: ${VIBE_NAMES[t.dataset.vibe]}`); homeUpdate();
 });
@@ -1073,10 +1143,13 @@ $("#castSrcKind").onchange = () => {
   if (k === "stream" && !$("#castSrcRef").value) $("#castSrcRef").value = "9000";
   $("#castSrcRef").classList.toggle("hidden", k === "screen" || k === "sync");
 };
-$("#kfPreset").onclick = () => { ["#kfX", "#kfY", "#kfW", "#kfH"].forEach((s, i) => $(s).value = Math.round(KF_PRESET[i] * 100)); };
-$("#kfOff").onclick = () => { ["#kfX", "#kfY", "#kfW", "#kfH"].forEach((s) => $(s).value = ""); };
+$("#kfPreset").onclick = () => { ["#kfX", "#kfY", "#kfW", "#kfH"].forEach((s, i) => $(s).value = Math.round(KF_PRESET[i] * 100)); toast("Killfeed-Bereich eingetragen – jetzt speichern", true, $("#kfPreset")); };
+$("#kfOff").onclick = () => { ["#kfX", "#kfY", "#kfW", "#kfH"].forEach((s) => $(s).value = ""); toast("Killfeed-Bereich geleert – jetzt speichern", true, $("#kfOff")); };
 $("#castPrevBtn").onclick = castPreview;
-$("#castCopyUrl").onclick = () => { navigator.clipboard && navigator.clipboard.writeText($("#castOverlayUrl").textContent).then(() => toast("Adresse kopiert")); };
+$("#castCopyUrl").onclick = () => {
+  if (!navigator.clipboard) return toast("Kopieren geht hier nicht – Adresse bitte markieren und mit Strg+C kopieren", false, $("#castCopyUrl"));
+  navigator.clipboard.writeText($("#castOverlayUrl").textContent).then(() => toast("Adresse kopiert", true, $("#castCopyUrl")), (e) => toast("Kopieren fehlgeschlagen: " + e.message, false, $("#castCopyUrl")));
+};
 $("#castSave").onclick = async () => {
   const kind = $("#castSrcKind").value, ref = $("#castSrcRef").value.trim();
   const kf = ["#kfX", "#kfY", "#kfW", "#kfH"].map((s) => $(s).value === "" ? null : Number($(s).value) / 100);
@@ -1097,7 +1170,7 @@ $("#castLearnBtn").onclick = async () => {
   if (url) fd.append("url", url);
   if (text) fd.append("text", text);
   $("#castLearnBtn").disabled = true;
-  const r = await fetch("/api/caster/learn", { method: "POST", body: fd }).then((x) => x.json()).catch(() => ({ ok: false, error: "Yvara AI nicht erreichbar" }));
+  const r = await api("/api/caster/learn", { method: "POST", body: fd });
   $("#castLearnBtn").disabled = false;
   if (!r.ok) return toast(r.error || "Ging nicht", false);
   toast(r.started ? "Yvara AI schaut sich den Cast an …" : `Gelernt: ${r.phrases} Sprüche, ${r.techniques} Tipps`);

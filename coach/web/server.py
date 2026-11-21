@@ -94,6 +94,28 @@ async def _no_cache(request, handler):
     return resp
 
 
+@web.middleware
+async def _json_errors(request, handler):
+    """API-Fehler immer als {"error": "Grund"} zurückgeben, damit die App den Grund anzeigen kann
+    (statt einer HTML-Fehlerseite oder eines nackten 500)."""
+    if not request.path.startswith("/api/"):
+        return await handler(request)
+    try:
+        return await handler(request)
+    except web.HTTPException as e:
+        if e.status < 400:
+            raise
+        reason = (e.text or e.reason or "").strip()
+        if reason.startswith(f"{e.status}:"):
+            reason = reason.split(":", 1)[1].strip()
+        return web.json_response({"ok": False, "error": reason or f"Fehler {e.status}"}, status=e.status)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001 – jeder unerwartete Fehler soll in der App sichtbar werden
+        log.exception("API-Fehler bei %s %s", request.method, request.path)
+        return web.json_response({"ok": False, "error": f"{type(e).__name__}: {e}" if str(e) else type(e).__name__}, status=500)
+
+
 def prepare_voice_sample(audio: np.ndarray, rate: int, max_s: float = 30.0) -> np.ndarray:
     """Stimmprobe säubern: Stille vorn/hinten weg, Lautstärke angleichen, höchstens 30 s."""
     audio = np.nan_to_num(audio.astype(np.float32))
@@ -139,7 +161,7 @@ class WebUI:
         self.cfg = cfg
         self.coach = coach
         self.tts = tts
-        self.app = web.Application(client_max_size=25 * 1024 * 1024, middlewares=[_lan_guard, _no_cache])
+        self.app = web.Application(client_max_size=25 * 1024 * 1024, middlewares=[_lan_guard, _no_cache, _json_errors])
         r = self.app.router
         r.add_get("/", self.index)
         r.add_static("/static", STATIC)

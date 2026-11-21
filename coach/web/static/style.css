@@ -73,17 +73,45 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 50; pointer-events: none; }
 .toast { display: flex; gap: 10px; align-items: center; min-width: 220px; max-width: 360px; padding: 10px 14px; border-radius: 10px;
   background: var(--bg3); border: 1px solid var(--line); box-shadow: 0 8px 30px #0008; font-weight: 600;
-  animation: toastIn .25s ease-out, toastOut .3s ease-in 2.7s forwards; }
+  animation: toastIn .25s ease-out, toastOut .3s ease-in var(--life, 3000ms) forwards; pointer-events: auto; cursor: pointer; }
 .toast .ic { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; color: #fff; flex: none;
   animation: pop .35s ease-out; }
 .toast.ok { border-color: var(--ok); } .toast.ok .ic { background: var(--ok); }
-.toast.err { border-color: var(--accent); } .toast.err .ic { background: var(--accent); }
-.flash-ok { animation: flashOk .9s ease-out; } .flash-err { animation: flashErr .9s ease-out; }
+.toast.err { border-color: var(--bad); font-weight: 500; } .toast.err .ic { background: var(--bad); }
+.toast.err .ic + span { overflow-wrap: anywhere; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: none; } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(8px); } }
 @keyframes pop { 0% { transform: scale(0); } 70% { transform: scale(1.25); } 100% { transform: scale(1); } }
 @keyframes flashOk { 0% { box-shadow: 0 0 0 0 #3ad29faa; } 100% { box-shadow: 0 0 0 12px #3ad29f00; } }
 @keyframes flashErr { 0%, 100% { transform: none; } 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
+/* Rückmeldung für jede Aktion: Laden → Erfolg / Fehler (siehe fbTrigger in app.js) */
+.fb-busy { position: relative; cursor: progress !important; pointer-events: none; }
+.fb-busy::after { content: ""; position: absolute; top: 50%; right: 8px; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%;
+  border: 2px solid #ffffff44; border-top-color: #fff; animation: fbSpin .7s linear infinite; }
+button.fb-busy { padding-right: 30px; transition: padding .15s; }
+button.ghost.fb-busy::after, .tile.fb-busy::after, label.fb-busy::after, .x.fb-busy::after, [data-a].fb-busy::after { border-color: var(--line); border-top-color: var(--accent2); }
+.tile.fb-busy::after { top: 14px; right: 14px; margin-top: 0; }
+.x.fb-busy, [data-co].fb-busy { color: transparent !important; }
+.x.fb-busy::after, [data-co].fb-busy::after { right: 50%; margin-right: -7px; }
+select.fb-busy { opacity: .7; }
+select.fb-busy, input.fb-busy { animation: fbBusyPulse 1s ease-in-out infinite; }
+.fb-ok { animation: flashOk .9s ease-out; position: relative; }
+.fb-err { animation: flashErr .6s ease-out; position: relative; outline: 2px solid var(--bad); outline-offset: 1px; }
+button.fb-ok::before, .tile.fb-ok::before, label.fb-ok::before { content: "✓"; position: absolute; top: -7px; right: -7px; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--ok); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; animation: pop .35s ease-out; z-index: 2; }
+button.fb-err::before, .tile.fb-err::before, label.fb-err::before { content: "!"; position: absolute; top: -7px; right: -7px; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; animation: pop .35s ease-out; z-index: 2; }
+@keyframes fbBusyPulse { 50% { box-shadow: 0 0 0 3px #36c2ff44; } }
+@keyframes fbSpin { to { transform: rotate(360deg); } }
+/* Neue Zeilen (Spieler, Bildquelle) und frisch gewählte Kacheln sanft einblenden */
+.fb-new { animation: fbIn .3s ease-out; }
+.fb-gone { opacity: 0; transform: translateX(8px); transition: opacity .2s, transform .2s; }
+.fb-loading { animation: fbBusyPulse 1s ease-in-out infinite; border-radius: 6px; padding: 4px 6px; }
+@keyframes fbIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.tile.active, .tile.on, .tile.sel { transition: border-color .25s, background .25s, box-shadow .25s; }
+@media (prefers-reduced-motion: reduce) {
+  .fb-busy::after { animation-duration: 2s; } .fb-ok, .fb-err, .fb-new, .toast, .toast .ic { animation: none !important; }
+}
 .badge.brain-bad { border-color: var(--accent); color: #ffb3ba; cursor: pointer; max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Lernstand */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
