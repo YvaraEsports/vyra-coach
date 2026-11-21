@@ -785,7 +785,8 @@ async function loadWatch(fillSources = false) {
   $("#wToggle").classList.toggle("danger", watchOn);
   $("#wBox").classList.toggle("hidden", !watchOn);
   const last = (w.log || []).slice(-1)[0];
-  $("#wLast").textContent = watchOn ? (last ? "Yvara AI sieht: " + last.text : "Yvara AI schaut hin … die erste Einschätzung kommt in ein paar Sekunden.") : "";
+  $("#wLast").textContent = watchOn ? (!w.seeing ? `🔴 Kein Bild: ${w.why || "es kommt nichts an"}`
+    : "🟢 Bild kommt an. " + (last ? "Yvara AI sieht: " + last.text : "Die erste Einschätzung kommt in ein paar Sekunden.")) : "";
   if (!w.available) $("#wLast").textContent = "Bildschirmaufnahme ist aus.";
 }
 $("#wToggle").onclick = async () => {
@@ -798,6 +799,7 @@ $("#wComment").onchange = () => api("/api/watch", { method: "POST", body: { on: 
 setInterval(() => {
   if (watchOn && !$("#tab-match").classList.contains("hidden")) $("#wImg").src = `/api/watch/preview.jpg?t=${Date.now()}`;
 }, 1000);
+setInterval(() => { if (watchOn && !$("#tab-match").classList.contains("hidden")) loadWatch(); }, 4000);  // Bild-Anzeige aktuell halten
 setInterval(() => { if (!$("#tab-match").classList.contains("hidden")) loadWatch(); }, 5000);
 loadWatch(true);
 

@@ -68,6 +68,7 @@ llm:
   effort_deep: high       # Reviews, Pläne, Lernen
   use_fallbacks: true     # serverseitiger Fallback, falls ein Modell ablehnt
   max_answer_words: 35    # gesprochene Antworten kurz halten
+  filler: auto            # „Okay.“/„Mhm.“ während die KI denkt. auto = aus bei XTTS (einzelne Wörter klingen dort wie eine fremde Stimme)
 
 audio:
   # Quellen, auf die der Coach hört:

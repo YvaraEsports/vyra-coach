@@ -894,7 +894,9 @@ class WebUI:
             monitors = max(1, len(c.capture._sct.monitors) - 1) if c.capture else 0
         except Exception:
             pass
+        seeing, why = c.watch_seeing() if hasattr(c, "watch_seeing") else (False, "")
         return web.json_response({**{k: v for k, v in c.watch.items()}, "available": c.capture is not None,
+                                  "seeing": seeing, "why": why,
                                   "windows": windows, "monitors": monitors,
                                   "log": [{"ts": ts, "text": o} for ts, o in c.watch_log[-8:]]})
 

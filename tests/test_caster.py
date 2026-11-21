@@ -258,3 +258,20 @@ def test_explain_and_help_and_roast_prompts(tmp_path, monkeypatch):
     assert "TRASH TALK" not in coach._sys("x {name}")
     from coach.brain import prompts as P
     assert "/coach watch" in P.CAPABILITIES.format(name="Yvara AI")
+
+
+def test_caster_phase_holds_chat_while_live(tmp_path, monkeypatch):
+    coach, c = _caster(tmp_path, monkeypatch, lang="de")
+    c.phase = "live"
+    c._on_chat({"user": "Mia", "text": "wie läufts?", "mod": False, "sub": False, "vip": False, "bits": 0, "ts": 0})
+    assert "CHAT" not in c._context() and "PHASE BEFORE: live" in c._context()
+    c.phase = "break"
+    assert "Mia: wie läufts?" in c._context()  # in der Pause kommt der Chat dran
+    c.on_game_events([type("E", (), {"kind": "match_end", "data": {"ours": 250, "enemy": 180}})()])
+    assert c.phase == "post_map"
+    assert "post_map" in c._system() and "phase" in P_SCHEMA_PROPS()
+
+
+def P_SCHEMA_PROPS():
+    from coach.brain.prompts import CASTER_SCHEMA
+    return CASTER_SCHEMA["properties"]

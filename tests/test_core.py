@@ -2134,3 +2134,40 @@ def test_supertonic_engine_with_fake_module(tmp_path, monkeypatch):
     info = asyncio.run(t.synth_info("Hallo Team, rotiert früh.", "de"))
     assert info["engine"] == "supertonic" and info["voice"] == "F2" and info["path"].exists()
     assert calls == {"model": "supertonic-3", "voice": "F2", "lang": "de", "text": "Hallo Team, rotiert früh."}
+
+
+def test_smalltalk_remembers_conversation_and_screen_honesty(tmp_path, monkeypatch):
+    coach = _coach(tmp_path, monkeypatch)
+    coach.note_dialogue("them", "Ich war heute beim Bäcker")
+    coach.note_dialogue("coach", "Was hast du dir geholt?")
+    ctx = coach._smalltalk_context("Ein Croissant")
+    assert "THEM: Ich war heute beim Bäcker" in ctx and "YOU: Was hast du dir geholt?" in ctx
+    assert "NOT watching" in ctx  # ohne Zuschauen darf sie nicht behaupten, etwas zu sehen
+    coach._dialogue[0] = (time.time() - 3600, "them", "uralt")
+    assert "uralt" not in coach.dialogue_text()
+
+
+def test_filler_off_for_xtts_and_blank_frames(tmp_path, monkeypatch):
+    import numpy as np
+
+    from coach.brain.coach import frame_is_blank
+    coach = _coach(tmp_path, monkeypatch, tts={"engine": "xtts"})
+    assert coach.use_filler() is False
+    coach.cfg.set_path("llm.filler", True)
+    assert coach.use_filler() is True
+    coach.cfg.set_path("tts.engine", "piper")
+    coach.cfg.set_path("llm.filler", "auto")
+    assert coach.use_filler() is True
+    assert frame_is_blank(np.zeros((720, 1280, 3), np.uint8))
+    assert not frame_is_blank(np.random.default_rng(1).integers(0, 255, (720, 1280, 3), dtype=np.uint8))
+
+
+def test_watch_without_picture_is_reported(tmp_path, monkeypatch):
+    import numpy as np
+    coach = _coach(tmp_path, monkeypatch)
+    coach.watch["on"] = True
+    coach.last_frame = np.zeros((360, 640, 3), np.uint8)
+    coach.last_frame_ts = time.time()
+    ok, why = coach.watch_seeing()
+    assert not ok and "schwarz" in why
+    assert "NO picture" in coach._screen_note()
